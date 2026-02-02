@@ -68,6 +68,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
     /** When true, this mod is running as a bundled component inside BEK-Tools. */
     public static boolean bekBundled = false;
 
+
     private static final String overlayName = "pgmm-overlay";
     private static final String mi2OverlayName = "pgmm-overlay-mi2-minimap";
 
@@ -131,6 +132,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             installConsoleApi();
             Time.runTask(10f, this::installConsoleApi);
             Time.runTask(10f, this::ensureOverlayAttached);
+            GithubUpdateCheck.checkOnce();
         });
 
         Events.on(WorldLoadEvent.class, e -> {
@@ -319,6 +321,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         if(ui == null || ui.settings == null) return;
         if(bekBundled) return;
 
+
         String defaultCategory = "Power Grid Minimap";
         try{
             //fallback in case bundles fail to load / missing key
@@ -330,54 +333,40 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
 
         ui.settings.addCategory(Core.bundle.get("pgmm.category", defaultCategory), this::bekBuildSettings);
     }
-
     /** Populates a {@link mindustry.ui.dialogs.SettingsMenuDialog.SettingsTable} with this mod's settings. */
     public void bekBuildSettings(SettingsMenuDialog.SettingsTable table){
-        table.checkPref(keyEnabled, true);
-        table.sliderPref(keyGridAlpha, 40, 0, 100, 5, v -> v + "%");
-        table.checkPref(keyShowBalance, true);
-        table.sliderPref(keyMarkerScale, 100, 50, 300, 10, v -> v + "%");
-        table.textPref(keyMarkerColor, "ffffff", v -> refreshMarkerColor());
-        table.sliderPref(keyHudMarkerFollowScale, 100, 0, 200, 10, v -> v + "%");
+            table.checkPref(keyEnabled, true);
+            table.sliderPref(keyGridAlpha, 40, 0, 100, 5, v -> v + "%");
+            table.checkPref(keyShowBalance, true);
+            table.sliderPref(keyMarkerScale, 100, 50, 300, 10, v -> v + "%");
+            table.textPref(keyMarkerColor, "ffffff", v -> refreshMarkerColor());
+            table.sliderPref(keyHudMarkerFollowScale, 100, 0, 200, 10, v -> v + "%");
 
-        //MI2 minimap integration toggle (disabled if MI2 not installed).
-        table.pref(new Mi2MinimapSetting());
-
-        table.sliderPref(keyClaimDistance, 5, 1, 20, 1, v -> v + "");
-        table.sliderPref(keySplitAlertThreshold, 10000, 1000, 50000, 500, v -> v + "/s");
-        table.sliderPref(keySplitAlertWindowSeconds, 4, 1, 15, 1, v -> v + "s");
-        table.sliderPref(keyClusterMarkerDistance, 15, 0, 60, 1, v -> v + "");
-        table.sliderPref(keyReconnectStroke, 2, 1, 8, 1, v -> v + "");
-        table.textPref(keyReconnectColor, "ffa500", v -> refreshReconnectColor());
-        table.sliderPref(keyUpdateWaitTenths, 10, 0, 50, 1, v -> (v / 10f) + "s");
-    }
-
-    private class Mi2MinimapSetting extends SettingsMenuDialog.SettingsTable.Setting{
-        public Mi2MinimapSetting(){
-            super(keyDrawOnMi2Minimap);
-        }
-
-        @Override
-        public void add(SettingsMenuDialog.SettingsTable table){
-            arc.scene.ui.CheckBox mi2Box = new arc.scene.ui.CheckBox(title);
-            addDesc(mi2Box);
-
+            //MI2 minimap integration toggle (disabled if MI2 not installed).
+            table.row();
+            arc.scene.ui.CheckBox mi2Box = new arc.scene.ui.CheckBox(Core.bundle.get("setting." + keyDrawOnMi2Minimap + ".name", "Draw on MI2 minimap"));
+            ui.addDescTooltip(mi2Box, Core.bundle.getOrNull("setting." + keyDrawOnMi2Minimap + ".description"));
             mi2Box.getLabel().setWrap(true);
             mi2Box.getLabelCell().growX();
-
             mi2Box.changed(() -> {
-                Core.settings.put(name, mi2Box.isChecked());
+                Core.settings.put(keyDrawOnMi2Minimap, mi2Box.isChecked());
                 //If MI2 exists, attach/detach immediately; otherwise, no-op.
                 mi2.ensureAttached(cache, markerColor, alert);
             });
-
-            mi2Box.update(() -> mi2Box.setChecked(Core.settings.getBool(name, false)));
-
-            table.row();
+            mi2Box.update(() -> mi2Box.setChecked(Core.settings.getBool(keyDrawOnMi2Minimap, false)));
             table.add(mi2Box).width(Math.min(Core.graphics.getWidth() / 1.2f, 460f)).left().padTop(3f);
             table.row();
-        }
+
+            table.sliderPref(keyClaimDistance, 5, 1, 20, 1, v -> v + "");
+            table.sliderPref(keySplitAlertThreshold, 10000, 1000, 50000, 500, v -> v + "/s");
+            table.sliderPref(keySplitAlertWindowSeconds, 4, 1, 15, 1, v -> v + "s");
+            table.sliderPref(keyClusterMarkerDistance, 15, 0, 60, 1, v -> v + "");
+            table.sliderPref(keyReconnectStroke, 2, 1, 8, 1, v -> v + "");
+            table.textPref(keyReconnectColor, "ffa500", v -> refreshReconnectColor());
+            table.sliderPref(keyUpdateWaitTenths, 10, 0, 50, 1, v -> (v / 10f) + "s");
+        
     }
+
 
     private void refreshMarkerColor(){
         Color out = markerColor;

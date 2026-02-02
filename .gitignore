@@ -1,6 +1,7 @@
 .gradle/
 build/
 bin/
+.submods/
 out/
 .idea/
 *.iml

@@ -57,6 +57,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     /** When true, this mod is running as a bundled component inside BEK-Tools. */
     public static boolean bekBundled = false;
 
+
     private static final String overlayName = "rbm-overlay";
 
     private static final int slotsPerRing = 8;
@@ -133,6 +134,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             ensureDefaults();
             registerSettings();
             Time.runTask(10f, this::ensureOverlayAttached);
+            GithubUpdateCheck.checkOnce();
         });
 
         Events.on(WorldLoadEvent.class, e -> {
@@ -186,34 +188,36 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         if(ui == null || ui.settings == null) return;
         if(bekBundled) return;
 
+
         ui.settings.addCategory("@rbm.category", this::bekBuildSettings);
     }
-
     /** Populates a {@link mindustry.ui.dialogs.SettingsMenuDialog.SettingsTable} with this mod's settings. */
     public void bekBuildSettings(SettingsMenuDialog.SettingsTable table){
-        table.checkPref(keyEnabled, true);
-        table.pref(new HotkeySetting());
+            table.checkPref(keyEnabled, true);
+            table.pref(new HotkeySetting());
 
-        table.pref(new HeaderSetting(Core.bundle.get("rbm.section.appearance"), mindustry.gen.Icon.pencil));
-        table.sliderPref(keyHudScale, 100, 50, 200, 5, v -> v + "%");
-        table.sliderPref(keyHudAlpha, 100, 0, 100, 5, v -> v + "%");
-        table.sliderPref(keyInnerRadius, 80, 40, 200, 5, v -> v + "px");
-        table.sliderPref(keyOuterRadius, 140, 60, 360, 5, v -> v + "px");
-        table.pref(new HudColorSetting());
-        table.checkPref(keyCenterScreen, false);
-        table.checkPref(keyProMode, false);
-        table.pref(new AdvancedButtonSetting(RadialBuildMenuMod.this));
+            table.pref(new HeaderSetting(Core.bundle.get("rbm.section.appearance"), mindustry.gen.Icon.pencil));
+            table.sliderPref(keyHudScale, 100, 50, 200, 5, v -> v + "%");
+            table.sliderPref(keyHudAlpha, 100, 0, 100, 5, v -> v + "%");
+            table.sliderPref(keyInnerRadius, 80, 40, 200, 5, v -> v + "px");
+            table.sliderPref(keyOuterRadius, 140, 60, 360, 5, v -> v + "px");
+            table.pref(new HudColorSetting());
+            table.checkPref(keyCenterScreen, false);
+            table.checkPref(keyProMode, false);
+            table.pref(new AdvancedButtonSetting(RadialBuildMenuMod.this));
 
-        table.pref(new HeaderSetting(Core.bundle.get("rbm.section.base"), mindustry.gen.Icon.list));
-        for(int i = 0; i < maxSlots; i++) table.pref(new SlotSetting(i, keySlotPrefix, "rbm.setting.slot"));
+            table.pref(new HeaderSetting(Core.bundle.get("rbm.section.base"), mindustry.gen.Icon.list));
+            for(int i = 0; i < maxSlots; i++) table.pref(new SlotSetting(i, keySlotPrefix, "rbm.setting.slot"));
 
-        table.pref(new HeaderSetting(Core.bundle.get("rbm.section.time"), mindustry.gen.Icon.refresh));
-        table.pref(new TimeMinutesSetting());
-        for(int i = 0; i < maxSlots; i++) table.pref(new SlotSetting(i, keyTimeSlotPrefix, "rbm.setting.timeslot"));
+            table.pref(new HeaderSetting(Core.bundle.get("rbm.section.time"), mindustry.gen.Icon.refresh));
+            table.pref(new TimeMinutesSetting());
+            for(int i = 0; i < maxSlots; i++) table.pref(new SlotSetting(i, keyTimeSlotPrefix, "rbm.setting.timeslot"));
 
-        table.pref(new HeaderSetting(Core.bundle.get("rbm.section.io"), mindustry.gen.Icon.info));
-        table.pref(new IoSetting());
+            table.pref(new HeaderSetting(Core.bundle.get("rbm.section.io"), mindustry.gen.Icon.info));
+            table.pref(new IoSetting());
+        
     }
+
 
     private void showAdvancedDialog(){
         BaseDialog dialog = new BaseDialog("@rbm.advanced.title");
@@ -1544,6 +1548,11 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             float mx = Core.input.mouseX();
             float my = Core.input.mouseY();
 
+            // When the cursor is on/inside the inner ring radius, never allow selecting outer ring slots.
+            float centerDx = mx - centerX;
+            float centerDy = my - centerY;
+            boolean preferInner = innerCount > 0 && (centerDx * centerDx + centerDy * centerDy) <= innerRadius * innerRadius;
+
             // hover hit-test (inner + outer)
             int bestSlot = -1;
             float bestDst2 = hit2;
@@ -1562,7 +1571,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
                 }
             }
 
-            if(outerActive){
+            if(outerActive && !preferInner){
                 for(int order = 0; order < outerCount; order++){
                     int slotIndex = outerIndices[order];
                     float angle = angleForOrder(order, outerCount);
@@ -1583,13 +1592,19 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             if(!Core.settings.getBool(keyDirectionSelect, true)) return -1;
 
             // direction-based selection
-            float dx = mx - centerX;
-            float dy = my - centerY;
+            float dx = centerDx;
+            float dy = centerDy;
             float deadzone = iconSize * Mathf.clamp(Core.settings.getInt(keyDeadzoneScale, 35) / 100f);
             if(dx * dx + dy * dy < deadzone * deadzone) return -1;
 
+            if(preferInner){
+                if(innerCount <= 0) return -1;
+                int order = orderIndex(dx, dy, innerCount);
+                if(order < 0 || order >= innerCount) return -1;
+                return innerIndices[order];
+            }
+
             if(outerActive){
-                // only applies to outer ring; inner ring requires hover
                 if(outerCount <= 0) return -1;
                 int order = orderIndex(dx, dy, outerCount);
                 if(order < 0 || order >= outerCount) return -1;
