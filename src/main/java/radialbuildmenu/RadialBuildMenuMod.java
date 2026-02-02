@@ -104,6 +104,10 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     private static final String keyPlanetSerpuloSlotPrefix = "rbm-planet-serpulo-slot-";
     private static final String keyPlanetSunSlotPrefix = "rbm-planet-sun-slot-";
 
+    private static final String keyPlanetErekirEnabled = "rbm-planet-erekir-enabled";
+    private static final String keyPlanetSerpuloEnabled = "rbm-planet-serpulo-enabled";
+    private static final String keyPlanetSunEnabled = "rbm-planet-sun-enabled";
+
     private static final String[] defaultSlotNames = {
         "conveyor",
         "router",
@@ -170,6 +174,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         for(int i = 0; i < maxSlots; i++){
             String def = defaultSlotName(i);
             Core.settings.defaults(keySlotPrefix + i, def);
+            // Time profile is a separate slot set; default it to the standard defaults.
             Core.settings.defaults(keyTimeSlotPrefix + i, def);
             // planet-specific overrides are empty by default
             Core.settings.defaults(keyTimeErekirSlotPrefix + i, "");
@@ -182,6 +187,10 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             Core.settings.defaults(keyCondInitialSlotPrefix + i, "");
             Core.settings.defaults(keyCondAfterSlotPrefix + i, "");
         }
+
+        Core.settings.defaults(keyPlanetErekirEnabled, true);
+        Core.settings.defaults(keyPlanetSerpuloEnabled, true);
+        Core.settings.defaults(keyPlanetSunEnabled, true);
     }
 
     private void registerSettings(){
@@ -230,6 +239,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             mindustry.gen.Icon.modeAttack,
             "rbm-adv-erekir-open",
             t -> {
+                t.checkPref(keyPlanetErekirEnabled, true);
                 t.pref(new SubHeaderSetting("@rbm.advanced.initial"));
                 for(int i = 0; i < maxSlots; i++) t.pref(new SlotSetting(i, keyPlanetErekirSlotPrefix, "rbm.setting.slot"));
                 t.pref(new SubHeaderSetting("@rbm.advanced.time"));
@@ -243,6 +253,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             mindustry.gen.Icon.modeAttack,
             "rbm-adv-serpulo-open",
             t -> {
+                t.checkPref(keyPlanetSerpuloEnabled, true);
                 t.pref(new SubHeaderSetting("@rbm.advanced.initial"));
                 for(int i = 0; i < maxSlots; i++) t.pref(new SlotSetting(i, keyPlanetSerpuloSlotPrefix, "rbm.setting.slot"));
                 t.pref(new SubHeaderSetting("@rbm.advanced.time"));
@@ -256,6 +267,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             mindustry.gen.Icon.modeAttack,
             "rbm-adv-sun-open",
             t -> {
+                t.checkPref(keyPlanetSunEnabled, true);
                 t.pref(new SubHeaderSetting("@rbm.advanced.initial"));
                 for(int i = 0; i < maxSlots; i++) t.pref(new SlotSetting(i, keyPlanetSunSlotPrefix, "rbm.setting.slot"));
                 t.pref(new SubHeaderSetting("@rbm.advanced.time"));
@@ -924,45 +936,55 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     }
 
     private String planetPrefix(String planetName){
-        if(planetErekir.equals(planetName)) return keyPlanetErekirSlotPrefix;
-        if(planetSerpulo.equals(planetName)) return keyPlanetSerpuloSlotPrefix;
-        if(planetSun.equals(planetName)) return keyPlanetSunSlotPrefix;
+        if(!Core.settings.getBool(keyProMode, false)) return "";
+        if(planetErekir.equals(planetName)) return Core.settings.getBool(keyPlanetErekirEnabled, true) ? keyPlanetErekirSlotPrefix : "";
+        if(planetSerpulo.equals(planetName)) return Core.settings.getBool(keyPlanetSerpuloEnabled, true) ? keyPlanetSerpuloSlotPrefix : "";
+        if(planetSun.equals(planetName)) return Core.settings.getBool(keyPlanetSunEnabled, true) ? keyPlanetSunSlotPrefix : "";
         return "";
     }
 
     private String timePlanetPrefix(String planetName){
-        if(planetErekir.equals(planetName)) return keyTimeErekirSlotPrefix;
-        if(planetSerpulo.equals(planetName)) return keyTimeSerpuloSlotPrefix;
-        if(planetSun.equals(planetName)) return keyTimeSunSlotPrefix;
+        if(!Core.settings.getBool(keyProMode, false)) return "";
+        if(planetErekir.equals(planetName)) return Core.settings.getBool(keyPlanetErekirEnabled, true) ? keyTimeErekirSlotPrefix : "";
+        if(planetSerpulo.equals(planetName)) return Core.settings.getBool(keyPlanetSerpuloEnabled, true) ? keyTimeSerpuloSlotPrefix : "";
+        if(planetSun.equals(planetName)) return Core.settings.getBool(keyPlanetSunEnabled, true) ? keyTimeSunSlotPrefix : "";
         return "";
     }
 
     private Block contextSlotBlock(int slot){
-        updateConditionalState();
+        boolean pro = Core.settings.getBool(keyProMode, false);
 
-        if(condAfterActive){
-            Block b = slotBlock(keyCondAfterSlotPrefix, slot);
-            if(b != null) return b;
-        }else if(condInitActive){
-            Block b = slotBlock(keyCondInitialSlotPrefix, slot);
-            if(b != null) return b;
+        if(pro){
+            updateConditionalState();
+
+            if(condAfterActive){
+                Block b = slotBlock(keyCondAfterSlotPrefix, slot);
+                if(b != null) return b;
+            }else if(condInitActive){
+                Block b = slotBlock(keyCondInitialSlotPrefix, slot);
+                if(b != null) return b;
+            }
         }
 
         String planet = currentPlanetName();
 
         if(timeRuleActive()){
-            String tp = timePlanetPrefix(planet);
-            if(!tp.isEmpty()){
-                Block b = slotBlock(tp, slot);
-                if(b != null) return b;
+            if(pro){
+                String tp = timePlanetPrefix(planet);
+                if(!tp.isEmpty()){
+                    Block b = slotBlock(tp, slot);
+                    if(b != null) return b;
+                }
             }
             Block time = slotBlock(keyTimeSlotPrefix, slot);
             if(time != null) return time;
         }else{
-            String pp = planetPrefix(planet);
-            if(!pp.isEmpty()){
-                Block b = slotBlock(pp, slot);
-                if(b != null) return b;
+            if(pro){
+                String pp = planetPrefix(planet);
+                if(!pp.isEmpty()){
+                    Block b = slotBlock(pp, slot);
+                    if(b != null) return b;
+                }
             }
         }
 
@@ -1195,6 +1217,9 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         root.put("ringStroke", Core.settings.getInt(keyRingStroke, 2));
         root.put("hudColor", normalizeHex(Core.settings.getString(keyHudColor, defaultHudColorHex())));
         root.put("proMode", Core.settings.getBool(keyProMode, false));
+        root.put("planetErekirEnabled", Core.settings.getBool(keyPlanetErekirEnabled, true));
+        root.put("planetSerpuloEnabled", Core.settings.getBool(keyPlanetSerpuloEnabled, true));
+        root.put("planetSunEnabled", Core.settings.getBool(keyPlanetSunEnabled, true));
 
         root.put("hoverUpdateFrames", Core.settings.getInt(keyHoverUpdateFrames, 0));
         root.put("hoverPadding", Core.settings.getInt(keyHoverPadding, 12));
@@ -1247,6 +1272,9 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             if(root.has("ringStroke")) Core.settings.put(keyRingStroke, root.getInt("ringStroke", 2));
             if(root.has("hudColor")) Core.settings.put(keyHudColor, normalizeHex(root.getString("hudColor", defaultHudColorHex())));
             if(root.has("proMode")) Core.settings.put(keyProMode, root.getBool("proMode", false));
+            if(root.has("planetErekirEnabled")) Core.settings.put(keyPlanetErekirEnabled, root.getBool("planetErekirEnabled", true));
+            if(root.has("planetSerpuloEnabled")) Core.settings.put(keyPlanetSerpuloEnabled, root.getBool("planetSerpuloEnabled", true));
+            if(root.has("planetSunEnabled")) Core.settings.put(keyPlanetSunEnabled, root.getBool("planetSunEnabled", true));
 
             if(root.has("hoverUpdateFrames")) Core.settings.put(keyHoverUpdateFrames, Math.max(0, root.getInt("hoverUpdateFrames", 0)));
             if(root.has("hoverPadding")) Core.settings.put(keyHoverPadding, Math.max(0, root.getInt("hoverPadding", 12)));

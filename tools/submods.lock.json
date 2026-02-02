@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generatedAtUtc": "2026-02-02T13:22:32Z",
+  "generatedAtUtc": "2026-02-02T15:11:59Z",
   "mods": {
     "pgmm": {
       "head": "20830c383abb32f9fca00529709e5b2139291cc7",
@@ -11,7 +11,7 @@
       "localPath": "C:\\Users\\华硕\\Documents\\codex\\StealthPath"
     },
     "rbm": {
-      "head": "da99ec04c278bfbfcee4dbdc0133c718853e92fd",
+      "head": "20996d5cf25acefccfb4dad35ac1f48762bd2671",
       "localPath": "C:\\Users\\华硕\\Documents\\codex\\Radial-Build-Menu-hud-"
     }
   }
