@@ -1,5 +1,11 @@
 # BEK-Tools
 
+## 反馈 / Feedback
+
+【BEK辅助mod反馈群】：https://qm.qq.com/q/cZWzPa4cTu
+
+![BEK辅助mod反馈群二维码](docs/bek-feedback-group.png)
+
 ## 中文说明
 
 BEK-Tools 是一个 Mindustry 客户端工具集（JavaMod），将以下 3 个模组合并为一个（无需分别安装）：
