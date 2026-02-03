@@ -2880,17 +2880,17 @@ public class StealthPathMod extends mindustry.mod.Mod{
                 if(xModeWindow == null){
                     try{ overlayModeContent.remove(); }catch(Throwable ignored){}
                     xModeWindow = xOverlayUi.registerWindow("stealthpath-mode", overlayModeContent, () -> state != null && state.isGame());
-                    xOverlayUi.tryConfigureWindow(xModeWindow, true, true);
+                    xOverlayUi.tryConfigureWindow(xModeWindow, false, true);
                 }
                 if(xDamageWindow == null){
                     try{ overlayDamageContent.remove(); }catch(Throwable ignored){}
                     xDamageWindow = xOverlayUi.registerWindow("stealthpath-damage", overlayDamageContent, () -> state != null && state.isGame());
-                    xOverlayUi.tryConfigureWindow(xDamageWindow, true, true);
+                    xOverlayUi.tryConfigureWindow(xDamageWindow, false, true);
                 }
                 if(xControlsWindow == null){
                     try{ overlayControlsContent.remove(); }catch(Throwable ignored){}
                     xControlsWindow = xOverlayUi.registerWindow("stealthpath-controls", overlayControlsContent, () -> state != null && state.isGame());
-                    xOverlayUi.tryConfigureWindow(xControlsWindow, true, true);
+                    xOverlayUi.tryConfigureWindow(xControlsWindow, false, true);
                 }
 
                 // Show panels when the mod is enabled, without requiring users to manually add them in OverlayUI.
@@ -2950,28 +2950,30 @@ public class StealthPathMod extends mindustry.mod.Mod{
         overlayModeContent.background(bgDraw);
         overlayModeContent.margin(8f);
         overlayModeContent.touchable = Touchable.disabled;
-        overlayModeContent.defaults().left();
+        overlayModeContent.defaults().left().growX().minWidth(0f);
 
         overlayModeContent.table(t -> {
             t.background(borderDraw);
             t.margin(6f);
             t.add("SP").color(accent).padRight(6f);
-            t.add("STATUS").color(key);
+            t.add("状态").color(key);
         }).growX().row();
 
         overlayModeContent.table(t -> {
-            t.left();
-            t.add("MODE").color(key).padRight(8f);
+            t.left().defaults().minWidth(0f);
+            t.add("模式").color(key).padRight(8f);
             overlayModeValue = new Label("", Styles.outlineLabel);
+            overlayModeValue.setWrap(true);
             overlayModeValue.setColor(value);
             overlayModeValue.update(() -> overlayModeValue.setText(overlayPathModeText()));
             t.add(overlayModeValue).left().growX();
         }).padTop(6f).growX().row();
 
         overlayModeContent.table(t -> {
-            t.left();
-            t.add("THREAT").color(key).padRight(8f);
+            t.left().defaults().minWidth(0f);
+            t.add("威胁").color(key).padRight(8f);
             overlayThreatValue = new Label("", Styles.outlineLabel);
+            overlayThreatValue.setWrap(true);
             overlayThreatValue.setColor(type);
             overlayThreatValue.update(() -> overlayThreatValue.setText(threatModeDisplay(Core.settings.getInt(keyThreatMode, threatModeGround))));
             t.add(overlayThreatValue).left().growX();
@@ -2982,18 +2984,18 @@ public class StealthPathMod extends mindustry.mod.Mod{
         overlayDamageContent.background(bgDraw);
         overlayDamageContent.margin(8f);
         overlayDamageContent.touchable = Touchable.disabled;
-        overlayDamageContent.defaults().left();
+        overlayDamageContent.defaults().left().growX().minWidth(0f);
 
         overlayDamageContent.table(t -> {
             t.background(borderDraw);
             t.margin(6f);
             t.add("SP").color(accent).padRight(6f);
-            t.add("DAMAGE").color(key);
+            t.add("伤害").color(key);
         }).growX().row();
 
         overlayDamageContent.table(t -> {
-            t.left();
-            t.add("DMG").color(key).padRight(8f);
+            t.left().defaults().minWidth(0f);
+            t.add("预计").color(key).padRight(8f);
             overlayDamageValue = new Label("", Styles.outlineLabel);
             overlayDamageValue.setColor(number);
             overlayDamageValue.update(() -> overlayDamageValue.setText(Strings.autoFixed(Math.max(0f, lastDamage), 2)));
@@ -3005,54 +3007,65 @@ public class StealthPathMod extends mindustry.mod.Mod{
         overlayControlsContent.background(bgDraw);
         overlayControlsContent.margin(8f);
         overlayControlsContent.touchable = Touchable.childrenOnly;
-        overlayControlsContent.defaults().left();
+        overlayControlsContent.defaults().left().growX().minWidth(0f);
 
         overlayControlsContent.table(t -> {
             t.background(borderDraw);
             t.margin(6f);
             t.add("SP").color(accent).padRight(6f);
-            t.add("CONTROLS").color(key);
+            t.add("快捷控制").color(key);
         }).growX().row();
 
         overlayControlsContent.table(t -> {
-            t.left();
+            t.left().defaults().growX().minWidth(0f).height(38f);
 
-            arc.scene.ui.TextButton bx = new TextButton("X: Turrets", btnStyle);
+            arc.scene.ui.TextButton bx = new TextButton("X：仅炮塔", btnStyle);
             bx.getLabel().setColor(accent);
+            bx.getLabel().setWrap(true);
+            bx.getLabelCell().growX().minWidth(0f);
             bx.clicked(() -> {
                 lastIncludeUnits = false;
                 computePath(false, false);
             });
             bx.update(() -> bx.getLabel().setColor((autoMode == autoModeOff && !lastIncludeUnits) ? warn : accent));
 
-            arc.scene.ui.TextButton by = new TextButton("Y: All", btnStyle);
+            arc.scene.ui.TextButton by = new TextButton("Y：炮塔+单位", btnStyle);
             by.getLabel().setColor(accent);
+            by.getLabel().setWrap(true);
+            by.getLabelCell().growX().minWidth(0f);
             by.clicked(() -> {
                 lastIncludeUnits = true;
                 computePath(true, false);
             });
             by.update(() -> by.getLabel().setColor((autoMode == autoModeOff && lastIncludeUnits) ? warn : accent));
 
-            arc.scene.ui.TextButton bn = new TextButton("N: Auto→Mouse", btnStyle);
+            arc.scene.ui.TextButton bn = new TextButton("N：自动→鼠标", btnStyle);
             bn.getLabel().setColor(fg);
+            bn.getLabel().setWrap(true);
+            bn.getLabelCell().growX().minWidth(0f);
             bn.clicked(() -> toggleAutoMode(autoModeMouse));
             bn.update(() -> bn.getLabel().setColor(autoMode == autoModeMouse ? warn : fg));
 
-            arc.scene.ui.TextButton bm = new TextButton("M: Auto→Attack", btnStyle);
+            arc.scene.ui.TextButton bm = new TextButton("M：自动→攻击", btnStyle);
             bm.getLabel().setColor(fg);
+            bm.getLabel().setWrap(true);
+            bm.getLabelCell().growX().minWidth(0f);
             bm.clicked(() -> toggleAutoMode(autoModeAttack));
             bm.update(() -> bm.getLabel().setColor(autoMode == autoModeAttack ? warn : fg));
 
-            arc.scene.ui.TextButton bt = new TextButton("L: Threat", btnStyle);
+            arc.scene.ui.TextButton bt = new TextButton("L：切换威胁模式", btnStyle);
             bt.getLabel().setColor(type);
+            bt.getLabel().setWrap(true);
+            bt.getLabelCell().growX().minWidth(0f);
             bt.clicked(this::cycleThreatMode);
 
             t.add(bx).padRight(6f);
-            t.add(by).padRight(6f);
+            t.add(by);
             t.row();
             t.add(bn).padTop(6f).padRight(6f);
-            t.add(bm).padTop(6f).padRight(6f);
-            t.add(bt).padTop(6f);
+            t.add(bm).padTop(6f);
+            t.row();
+            t.add(bt).colspan(2).padTop(6f);
         }).growX().row();
     }
 
@@ -3065,9 +3078,9 @@ public class StealthPathMod extends mindustry.mod.Mod{
     }
 
     private String overlayPathModeText(){
-        if(autoMode == autoModeMouse) return "N / AUTO → MOUSE";
-        if(autoMode == autoModeAttack) return "M / AUTO → ATTACK";
-        return lastIncludeUnits ? "Y / PATH (TURRETS+UNITS)" : "X / PATH (TURRETS)";
+        if(autoMode == autoModeMouse) return "N / 自动 → 鼠标";
+        if(autoMode == autoModeAttack) return "M / 自动 → 攻击";
+        return lastIncludeUnits ? "Y / 路径（炮塔+单位）" : "X / 路径（仅炮塔）";
     }
 
     /** Optional integration with MindustryX OverlayUI. Uses reflection so vanilla builds won't crash. */

@@ -2,6 +2,7 @@ package radialbuildmenu;
 
 import arc.Core;
 import arc.Events;
+import arc.func.Prov;
 import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
@@ -22,6 +23,8 @@ import arc.scene.ui.ScrollPane;
 import arc.scene.ui.TextButton;
 import arc.scene.ui.layout.Table;
 import arc.scene.ui.layout.Scl;
+import arc.util.Align;
+import arc.util.Log;
 import arc.util.Scaling;
 import arc.util.serialization.Jval.Jtype;
 import arc.util.Strings;
@@ -44,6 +47,7 @@ import mindustry.world.blocks.storage.CoreBlock;
 import mindustry.world.Block;
 import mindustry.world.meta.BuildVisibility;
 
+import java.lang.reflect.Method;
 import java.util.Locale;
 
 import static mindustry.Vars.player;
@@ -59,6 +63,8 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
 
 
     private static final String overlayName = "rbm-overlay";
+    private static final String mobileToggleName = "rbm-mobile-toggle";
+    private static final String mobileWindowName = "rbm-mobile";
 
     private static final int slotsPerRing = 8;
     private static final int maxSlots = 16;
@@ -121,6 +127,9 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
 
     public static final KeyBind radialMenu = KeyBind.add("rbm_radial_menu", KeyCode.unset, "blocks");
 
+    private final MindustryXOverlayUI xOverlayUi = new MindustryXOverlayUI();
+    private Object xMobileToggleWindow;
+
     private boolean condAfterLatched;
     private boolean condInitActive;
     private boolean condAfterActive;
@@ -138,12 +147,14 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             ensureDefaults();
             registerSettings();
             Time.runTask(10f, this::ensureOverlayAttached);
+            Time.runTask(10f, this::ensureMobileToggleAttached);
             GithubUpdateCheck.checkOnce();
         });
 
         Events.on(WorldLoadEvent.class, e -> {
             resetMatchState();
             Time.runTask(10f, this::ensureOverlayAttached);
+            Time.runTask(10f, this::ensureMobileToggleAttached);
         });
     }
 
@@ -1269,7 +1280,6 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     }
 
     private void ensureOverlayAttached(){
-        if(mobile) return;
         if(ui == null || ui.hudGroup == null) return;
 
         if(ui.hudGroup.find(overlayName) != null) return;
@@ -1278,6 +1288,59 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         hud.name = overlayName;
         hud.touchable = Touchable.disabled;
         ui.hudGroup.addChild(hud);
+    }
+
+    private void ensureMobileToggleAttached(){
+        if(!mobile) return;
+        if(ui == null || ui.hudGroup == null) return;
+
+        ensureOverlayAttached();
+
+        // Prefer MindustryX OverlayUI if available.
+        if(xOverlayUi.isInstalled()){
+            if(xMobileToggleWindow == null){
+                try{
+                    Table content = buildMobileToggleContent();
+                    xMobileToggleWindow = xOverlayUi.registerWindow(mobileWindowName, content, () -> state != null && state.isGame());
+                    if(xMobileToggleWindow != null){
+                        xOverlayUi.setEnabledAndPinned(xMobileToggleWindow, true, true);
+                        return;
+                    }
+                }catch(Throwable t){
+                    xMobileToggleWindow = null;
+                }
+            }else{
+                return;
+            }
+        }
+
+        // Fallback: attach a fixed-center toggle button directly to the HUD.
+        if(ui.hudGroup.find(mobileToggleName) != null) return;
+
+        Table content = buildMobileToggleContent();
+        content.name = mobileToggleName;
+        ui.hudGroup.addChild(content);
+        content.update(() -> {
+            // Keep centered and above most HUD elements.
+            content.setPosition(Core.graphics.getWidth() / 2f, Core.graphics.getHeight() / 2f, Align.center);
+            content.toFront();
+        });
+    }
+
+    private Table buildMobileToggleContent(){
+        Table t = new Table(Tex.button);
+        t.touchable = Touchable.enabled;
+        t.margin(8f);
+
+        t.button(mindustry.gen.Icon.hammer, Styles.clearNonei, () -> {
+            if(ui == null || ui.hudGroup == null) return;
+            Element e = ui.hudGroup.find(overlayName);
+            if(e instanceof RadialHud){
+                ((RadialHud)e).beginMobile();
+            }
+        }).size(56f);
+
+        return t;
     }
 
     private static class RadialHud extends Element{
@@ -1297,6 +1360,35 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
 
         public RadialHud(RadialBuildMenuMod mod){
             this.mod = mod;
+
+            // Mobile: tap-to-select; close by tapping outside the HUD.
+            addListener(new InputListener(){
+                @Override
+                public boolean touchDown(InputEvent event, float x, float y, int pointer, KeyCode button){
+                    if(!mobile) return false;
+                    if(!active) return false;
+                    if(pointer != 0) return false;
+
+                    float sx = event.stageX;
+                    float sy = event.stageY;
+
+                    int slot = findSlotAt(sx, sy);
+                    if(slot != -1){
+                        hovered = slot;
+                        commitSelection();
+                        close();
+                        return true;
+                    }
+
+                    // Tap outside to close; taps inside the HUD but not on an icon do nothing.
+                    if(isOutsideHud(sx, sy)){
+                        close();
+                        return true;
+                    }
+
+                    return true; // consume while the HUD is open
+                }
+            });
         }
 
         @Override
@@ -1309,10 +1401,19 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
                 setSize(Core.graphics.getWidth(), Core.graphics.getHeight());
             }
 
+            // Keep touch handling disabled unless we're actively showing the HUD on mobile.
+            touchable = (mobile && active) ? Touchable.enabled : Touchable.disabled;
+
             if(active){
                 if(!canStayActive()){
-                    active = false;
-                    hovered = -1;
+                    close();
+                    return;
+                }
+
+                if(mobile){
+                    // Mobile HUD is always centered.
+                    centerX = getWidth() / 2f;
+                    centerY = getHeight() / 2f;
                     return;
                 }
 
@@ -1325,14 +1426,13 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
 
                 if(Core.input.keyRelease(radialMenu)){
                     commitSelection();
-                    active = false;
-                    hovered = -1;
+                    close();
                 }else if(!Core.input.keyDown(radialMenu)){
                     // failsafe: if focus changed and no release is received
-                    active = false;
-                    hovered = -1;
+                    close();
                 }
             }else{
+                if(mobile) return;
                 if(canActivate() && Core.input.keyTap(radialMenu)){
                     begin();
                 }
@@ -1469,6 +1569,98 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             rebuildActiveSlotLists();
 
             hovered = findHovered();
+        }
+
+        private void beginMobile(){
+            if(active) return;
+            if(!canActivate()) return;
+
+            active = true;
+            hovered = -1;
+            centerX = getWidth() / 2f;
+            centerY = getHeight() / 2f;
+
+            for(int i = 0; i < slots.length; i++){
+                slots[i] = mod.contextSlotBlock(i);
+            }
+            rebuildActiveSlotLists();
+        }
+
+        private void close(){
+            active = false;
+            hovered = -1;
+        }
+
+        private int findSlotAt(float sx, float sy){
+            float scale = Mathf.clamp(Core.settings.getInt(keyHudScale, 100) / 100f, 0.1f, 5f);
+            float innerSetting = Core.settings.getInt(keyInnerRadius, 80);
+            float outerSetting = Core.settings.getInt(keyOuterRadius, 140);
+            float radiusScale = Mathf.clamp((innerSetting / 80f + outerSetting / 140f) / 2f, 0.5f, 3f);
+            float iconSizeScale = Mathf.clamp(Core.settings.getInt(keyIconScale, 100) / 100f, 0.2f, 5f);
+            float iconSize = Scl.scl(46f) * scale * radiusScale * iconSizeScale;
+            float innerRadius = Scl.scl(innerSetting) * scale;
+            float outerRadius = Scl.scl(outerSetting) * scale;
+            outerRadius = Math.max(outerRadius, innerRadius + iconSize * 1.15f);
+            float hit = iconSize / 2f + Scl.scl(Math.max(0, Core.settings.getInt(keyHoverPadding, 12))) * scale;
+            float hit2 = hit * hit;
+
+            float centerDx = sx - centerX;
+            float centerDy = sy - centerY;
+            boolean preferInner = innerCount > 0 && (centerDx * centerDx + centerDy * centerDy) <= innerRadius * innerRadius;
+
+            int bestSlot = -1;
+            float bestDst2 = hit2;
+
+            for(int order = 0; order < innerCount; order++){
+                int slotIndex = innerIndices[order];
+                float angle = angleForOrder(order, innerCount);
+                float px = centerX + Mathf.cosDeg(angle) * innerRadius;
+                float py = centerY + Mathf.sinDeg(angle) * innerRadius;
+                float dx = sx - px;
+                float dy = sy - py;
+                float dst2 = dx * dx + dy * dy;
+                if(dst2 <= bestDst2){
+                    bestDst2 = dst2;
+                    bestSlot = slotIndex;
+                }
+            }
+
+            if(outerActive && !preferInner){
+                for(int order = 0; order < outerCount; order++){
+                    int slotIndex = outerIndices[order];
+                    float angle = angleForOrder(order, outerCount);
+                    float px = centerX + Mathf.cosDeg(angle) * outerRadius;
+                    float py = centerY + Mathf.sinDeg(angle) * outerRadius;
+                    float dx = sx - px;
+                    float dy = sy - py;
+                    float dst2 = dx * dx + dy * dy;
+                    if(dst2 <= bestDst2){
+                        bestDst2 = dst2;
+                        bestSlot = slotIndex;
+                    }
+                }
+            }
+
+            return bestSlot;
+        }
+
+        private boolean isOutsideHud(float sx, float sy){
+            float scale = Mathf.clamp(Core.settings.getInt(keyHudScale, 100) / 100f, 0.1f, 5f);
+            float innerSetting = Core.settings.getInt(keyInnerRadius, 80);
+            float outerSetting = Core.settings.getInt(keyOuterRadius, 140);
+            float radiusScale = Mathf.clamp((innerSetting / 80f + outerSetting / 140f) / 2f, 0.5f, 3f);
+            float iconSizeScale = Mathf.clamp(Core.settings.getInt(keyIconScale, 100) / 100f, 0.2f, 5f);
+            float iconSize = Scl.scl(46f) * scale * radiusScale * iconSizeScale;
+            float innerRadius = Scl.scl(innerSetting) * scale;
+            float outerRadius = Scl.scl(outerSetting) * scale;
+            outerRadius = Math.max(outerRadius, innerRadius + iconSize * 1.15f);
+
+            float outer = outerActive ? outerRadius : innerRadius;
+            float backRadius = outer + iconSize * 0.75f;
+
+            float dx = sx - centerX;
+            float dy = sy - centerY;
+            return dx * dx + dy * dy > backRadius * backRadius;
         }
 
         private void updateHovered(){
@@ -1630,6 +1822,98 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
                 && block.placeablePlayer
                 && block.environmentBuildable()
                 && block.supportsEnv(state.rules.env);
+        }
+    }
+
+    /** Optional integration with MindustryX OverlayUI. Uses reflection so vanilla builds won't crash. */
+    private static class MindustryXOverlayUI{
+        private boolean initialized = false;
+        private boolean installed = false;
+        private Object instance;
+        private Method registerWindow;
+        private Method setAvailability;
+        private Method getData;
+        private Method setEnabled;
+        private Method setPinned;
+
+        boolean isInstalled(){
+            if(initialized) return installed;
+            initialized = true;
+            try{
+                installed = mindustry.Vars.mods != null && mindustry.Vars.mods.locateMod("mindustryx") != null;
+            }catch(Throwable ignored){
+                installed = false;
+            }
+            if(!installed) return false;
+
+            try{
+                Class<?> c = Class.forName("mindustryX.features.ui.OverlayUI");
+                instance = c.getField("INSTANCE").get(null);
+                registerWindow = c.getMethod("registerWindow", String.class, Table.class);
+            }catch(Throwable t){
+                installed = false;
+                Log.err("RBM: MindustryX detected but OverlayUI reflection init failed.", t);
+                return false;
+            }
+            return true;
+        }
+
+        Object registerWindow(String name, Table table, Prov<Boolean> availability){
+            if(!isInstalled()) return null;
+            try{
+                Object window = registerWindow.invoke(instance, name, table);
+                tryInitWindowAccessors(window);
+                if(window != null && availability != null && setAvailability != null){
+                    setAvailability.invoke(window, availability);
+                }
+                return window;
+            }catch(Throwable t){
+                Log.err("RBM: OverlayUI.registerWindow failed.", t);
+                return null;
+            }
+        }
+
+        void setEnabledAndPinned(Object window, boolean enabled, boolean pinned){
+            if(window == null) return;
+            try{
+                tryInitWindowAccessors(window);
+                if(getData == null) return;
+                Object data = getData.invoke(window);
+                if(data == null) return;
+                if(setEnabled != null) setEnabled.invoke(data, enabled);
+                if(pinned && setPinned != null) setPinned.invoke(data, true);
+            }catch(Throwable ignored){
+            }
+        }
+
+        private void tryInitWindowAccessors(Object window){
+            if(window == null) return;
+            if(getData != null || setAvailability != null) return;
+            try{
+                Class<?> wc = window.getClass();
+                try{
+                    setAvailability = wc.getMethod("setAvailability", Prov.class);
+                }catch(Throwable ignored){
+                    setAvailability = null;
+                }
+                getData = wc.getMethod("getData");
+
+                Object data = getData.invoke(window);
+                if(data != null){
+                    Class<?> dc = data.getClass();
+                    try{
+                        setEnabled = dc.getMethod("setEnabled", boolean.class);
+                    }catch(Throwable ignored){
+                        setEnabled = null;
+                    }
+                    try{
+                        setPinned = dc.getMethod("setPinned", boolean.class);
+                    }catch(Throwable ignored){
+                        setPinned = null;
+                    }
+                }
+            }catch(Throwable ignored){
+            }
         }
     }
 
