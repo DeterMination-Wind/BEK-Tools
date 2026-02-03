@@ -78,7 +78,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     private static final String keyRingStroke = "rbm-ring-stroke";
     private static final String keyHudColor = "rbm-hudcolor";
     private static final String keyCenterScreen = "rbm-center-screen";
-    private static final String keyProMode = "rbm-pro-mode";
+    static final String keyProMode = "rbm-pro-mode";
     private static final String keyTimeMinutes = "rbm-time-minutes";
 
     private static final String keyHoverUpdateFrames = "rbm-hover-update-frames";
@@ -228,7 +228,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     }
 
 
-    private void showAdvancedDialog(){
+    void showAdvancedDialog(){
         BaseDialog dialog = new BaseDialog("@rbm.advanced.title");
         dialog.addCloseButton();
 
@@ -342,58 +342,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         }
     }
 
-    private static class SubHeaderSetting extends SettingsMenuDialog.SettingsTable.Setting{
-        private final String titleKeyOrText;
-
-        public SubHeaderSetting(String titleKeyOrText){
-            super("rbm-subheader");
-            this.titleKeyOrText = titleKeyOrText;
-        }
-
-        @Override
-        public void add(SettingsMenuDialog.SettingsTable table){
-            table.row();
-            table.add(titleKeyOrText.startsWith("@") ? Core.bundle.get(titleKeyOrText.substring(1)) : titleKeyOrText)
-                .color(Color.gray)
-                .padTop(8f)
-                .padBottom(2f)
-                .left()
-                .growX()
-                .minWidth(0f)
-                .wrap();
-            table.row();
-        }
-    }
-
-    private static class AdvancedButtonSetting extends SettingsMenuDialog.SettingsTable.Setting{
-        private final RadialBuildMenuMod mod;
-
-        public AdvancedButtonSetting(RadialBuildMenuMod mod){
-            super("rbm-advanced");
-            this.mod = mod;
-        }
-
-        @Override
-        public void add(SettingsMenuDialog.SettingsTable table){
-            float prefWidth = prefWidth();
-            Table root = table.table(Tex.button, t -> {
-                t.left().margin(10f);
-                t.image(mindustry.gen.Icon.settings).size(20f).padRight(8f);
-                t.add(title, Styles.outlineLabel).left().growX().minWidth(0f).wrap();
-
-                TextButton btn = t.button("@rbm.advanced.open", Styles.flatt, mod::showAdvancedDialog)
-                    .width(190f)
-                    .height(40f)
-                    .padLeft(10f)
-                    .get();
-
-                btn.update(() -> btn.setDisabled(!Core.settings.getBool(keyProMode, false)));
-            }).width(prefWidth).padTop(6f).get();
-
-            addDesc(root);
-            table.row();
-        }
-    }
+    // SubHeaderSetting / AdvancedButtonSetting extracted into `RbmSettingsExtracted`.
 
     private class HotkeySetting extends SettingsMenuDialog.SettingsTable.Setting{
         public HotkeySetting(){
@@ -1062,7 +1011,8 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         }
     }
 
-    private float condVar(String name){
+    // Used by condition expression evaluator (extracted into RbmConditionExpr).
+    float condVar(String name){
         if(name == null) return 0f;
         String n = name.trim().toLowerCase(Locale.ROOT);
         if(n.isEmpty()) return 0f;
@@ -1683,330 +1633,11 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         }
     }
 
-    private static float prefWidth(){
+    static float prefWidth(){
         // slightly wider so long texts don't get clipped in settings dialogs
         return Math.min(Core.graphics.getWidth() / 1.02f, 980f);
     }
+    // WideSliderSetting extracted into `RbmSettingsExtracted`.
 
-    private static class WideSliderSetting extends SettingsMenuDialog.SettingsTable.Setting{
-        private final int def, min, max, step;
-        private final SettingsMenuDialog.StringProcessor sp;
-
-        public WideSliderSetting(String name, int def, int min, int max, int step, SettingsMenuDialog.StringProcessor sp){
-            super(name);
-            this.def = def;
-            this.min = min;
-            this.max = max;
-            this.step = step;
-            this.sp = sp;
-        }
-
-        @Override
-        public void add(SettingsMenuDialog.SettingsTable table){
-            arc.scene.ui.Slider slider = new arc.scene.ui.Slider(min, max, step, false);
-            slider.setValue(Core.settings.getInt(name, def));
-
-            arc.scene.ui.Label value = new arc.scene.ui.Label("", Styles.outlineLabel);
-
-            Table content = new Table();
-            content.add(title, Styles.outlineLabel).left().growX().minWidth(0f).wrap();
-            content.add(value).padLeft(10f).right();
-            content.margin(3f, 33f, 3f, 33f);
-            content.touchable = Touchable.disabled;
-
-            slider.changed(() -> {
-                Core.settings.put(name, (int)slider.getValue());
-                value.setText(sp.get((int)slider.getValue()));
-            });
-
-            slider.change();
-
-            // leave room for the vertical scrollbar on the right side
-            addDesc(table.stack(slider, content).width(prefWidth() - 64f).left().padTop(4f).get());
-            table.row();
-        }
-    }
-
-    private interface Expr{
-        /** Returns 0 for false, non-zero for true. */
-        float eval(RadialBuildMenuMod ctx);
-    }
-
-    private static class ConditionParser{
-        private final String s;
-        private int i;
-
-        private ConditionParser(String s){
-            this.s = s == null ? "" : s;
-        }
-
-        public static Expr parse(String s){
-            ConditionParser p = new ConditionParser(s);
-            Expr out = p.parseOr();
-            p.skipWs();
-            if(!p.eof()){
-                throw new IllegalArgumentException("Unexpected trailing input at " + p.i);
-            }
-            return out;
-        }
-
-        private Expr parseOr(){
-            Expr left = parseXor();
-            while(true){
-                skipWs();
-                if(match("||")){
-                    Expr right = parseXor();
-                    left = new OrExpr(left, right);
-                    continue;
-                }
-                return left;
-            }
-        }
-
-        private Expr parseXor(){
-            Expr left = parseAnd();
-            while(true){
-                skipWs();
-                if(matchWord("xor")){
-                    Expr right = parseAnd();
-                    left = new XorExpr(left, right);
-                    continue;
-                }
-                return left;
-            }
-        }
-
-        private Expr parseAnd(){
-            Expr left = parseCompare();
-            while(true){
-                skipWs();
-                if(match("&&")){
-                    Expr right = parseCompare();
-                    left = new AndExpr(left, right);
-                    continue;
-                }
-                return left;
-            }
-        }
-
-        private Expr parseCompare(){
-            Expr left = parseUnary();
-            while(true){
-                skipWs();
-
-                if(match(">=")){
-                    Expr right = parseUnary();
-                    left = new CmpExpr(left, right, CmpOp.gte);
-                }else if(match("<=")){
-                    Expr right = parseUnary();
-                    left = new CmpExpr(left, right, CmpOp.lte);
-                }else if(match("==")){
-                    Expr right = parseUnary();
-                    left = new CmpExpr(left, right, CmpOp.eq);
-                }else if(match("!=")){
-                    Expr right = parseUnary();
-                    left = new CmpExpr(left, right, CmpOp.neq);
-                }else if(match(">")){
-                    Expr right = parseUnary();
-                    left = new CmpExpr(left, right, CmpOp.gt);
-                }else if(match("<")){
-                    Expr right = parseUnary();
-                    left = new CmpExpr(left, right, CmpOp.lt);
-                }else{
-                    return left;
-                }
-            }
-        }
-
-        private Expr parseUnary(){
-            skipWs();
-            if(match("!")){
-                return new NotExpr(parseUnary());
-            }
-            if(match("-")){
-                return new NegExpr(parseUnary());
-            }
-            return parsePrimary();
-        }
-
-        private Expr parsePrimary(){
-            skipWs();
-            if(match("(")){
-                Expr e = parseOr();
-                skipWs();
-                if(!match(")")) throw new IllegalArgumentException("Missing ')' at " + i);
-                return e;
-            }
-
-            if(peek() == '@'){
-                i++;
-                String name = readIdent();
-                if(name.isEmpty()) throw new IllegalArgumentException("Empty variable name at " + i);
-                return new VarExpr(name);
-            }
-
-            if(isDigit(peek()) || peek() == '.'){
-                String num = readNumber();
-                try{
-                    return new NumExpr(Float.parseFloat(num));
-                }catch(Throwable t){
-                    throw new IllegalArgumentException("Bad number: " + num);
-                }
-            }
-
-            throw new IllegalArgumentException("Unexpected token at " + i);
-        }
-
-        private String readIdent(){
-            int start = i;
-            while(!eof()){
-                char c = s.charAt(i);
-                boolean ok = (c >= 'a' && c <= 'z')
-                    || (c >= 'A' && c <= 'Z')
-                    || (c >= '0' && c <= '9')
-                    || c == '_' || c == '-';
-                if(!ok) break;
-                i++;
-            }
-            return s.substring(start, i);
-        }
-
-        private String readNumber(){
-            int start = i;
-            boolean dot = false;
-            while(!eof()){
-                char c = s.charAt(i);
-                if(c == '.'){
-                    if(dot) break;
-                    dot = true;
-                    i++;
-                    continue;
-                }
-                if(!isDigit(c)) break;
-                i++;
-            }
-            return s.substring(start, i);
-        }
-
-        private boolean match(String lit){
-            if(lit == null || lit.isEmpty()) return false;
-            if(i + lit.length() > s.length()) return false;
-            if(s.regionMatches(i, lit, 0, lit.length())){
-                i += lit.length();
-                return true;
-            }
-            return false;
-        }
-
-        private boolean matchWord(String word){
-            if(word == null || word.isEmpty()) return false;
-            int len = word.length();
-            if(i + len > s.length()) return false;
-            if(!s.regionMatches(true, i, word, 0, len)) return false;
-
-            // word boundary
-            char before = i > 0 ? s.charAt(i - 1) : ' ';
-            char after = (i + len) < s.length() ? s.charAt(i + len) : ' ';
-            if(isIdentChar(before) || isIdentChar(after)) return false;
-
-            i += len;
-            return true;
-        }
-
-        private boolean isIdentChar(char c){
-            return (c >= 'a' && c <= 'z')
-                || (c >= 'A' && c <= 'Z')
-                || (c >= '0' && c <= '9')
-                || c == '_' || c == '-';
-        }
-
-        private void skipWs(){
-            while(!eof()){
-                char c = s.charAt(i);
-                if(c != ' ' && c != '\t' && c != '\n' && c != '\r') break;
-                i++;
-            }
-        }
-
-        private char peek(){
-            return eof() ? '\0' : s.charAt(i);
-        }
-
-        private boolean eof(){
-            return i >= s.length();
-        }
-
-        private boolean isDigit(char c){
-            return c >= '0' && c <= '9';
-        }
-    }
-
-    private static class NumExpr implements Expr{
-        private final float v;
-        NumExpr(float v){ this.v = v; }
-        @Override public float eval(RadialBuildMenuMod ctx){ return v; }
-    }
-
-    private static class VarExpr implements Expr{
-        private final String name;
-        VarExpr(String name){ this.name = name; }
-        @Override public float eval(RadialBuildMenuMod ctx){ return ctx.condVar(name); }
-    }
-
-    private static class NegExpr implements Expr{
-        private final Expr inner;
-        NegExpr(Expr inner){ this.inner = inner; }
-        @Override public float eval(RadialBuildMenuMod ctx){ return -inner.eval(ctx); }
-    }
-
-    private static class NotExpr implements Expr{
-        private final Expr inner;
-        NotExpr(Expr inner){ this.inner = inner; }
-        @Override public float eval(RadialBuildMenuMod ctx){ return inner.eval(ctx) != 0f ? 0f : 1f; }
-    }
-
-    private static class AndExpr implements Expr{
-        private final Expr a, b;
-        AndExpr(Expr a, Expr b){ this.a = a; this.b = b; }
-        @Override public float eval(RadialBuildMenuMod ctx){ return (a.eval(ctx) != 0f && b.eval(ctx) != 0f) ? 1f : 0f; }
-    }
-
-    private static class OrExpr implements Expr{
-        private final Expr a, b;
-        OrExpr(Expr a, Expr b){ this.a = a; this.b = b; }
-        @Override public float eval(RadialBuildMenuMod ctx){ return (a.eval(ctx) != 0f || b.eval(ctx) != 0f) ? 1f : 0f; }
-    }
-
-    private static class XorExpr implements Expr{
-        private final Expr a, b;
-        XorExpr(Expr a, Expr b){ this.a = a; this.b = b; }
-        @Override public float eval(RadialBuildMenuMod ctx){
-            boolean av = a.eval(ctx) != 0f;
-            boolean bv = b.eval(ctx) != 0f;
-            return (av ^ bv) ? 1f : 0f;
-        }
-    }
-
-    private enum CmpOp{ gt, gte, lt, lte, eq, neq }
-
-    private static class CmpExpr implements Expr{
-        private final Expr a, b;
-        private final CmpOp op;
-        CmpExpr(Expr a, Expr b, CmpOp op){ this.a = a; this.b = b; this.op = op; }
-        @Override public float eval(RadialBuildMenuMod ctx){
-            float av = a.eval(ctx);
-            float bv = b.eval(ctx);
-            boolean out;
-            switch(op){
-                case gt: out = av > bv; break;
-                case gte: out = av >= bv; break;
-                case lt: out = av < bv; break;
-                case lte: out = av <= bv; break;
-                case eq: out = av == bv; break;
-                case neq: out = av != bv; break;
-                default: out = false; break;
-            }
-            return out ? 1f : 0f;
-        }
-    }
+    // Condition expression parsing/eval extracted into `RbmConditionExpr` (same behavior).
 }

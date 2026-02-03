@@ -45,6 +45,7 @@ import mindustry.game.EventType.ConfigEvent;
 import mindustry.game.EventType.WorldLoadEvent;
 import mindustry.game.EventType.Trigger;
 import mindustry.graphics.Drawf;
+import mindustry.gen.Building;
 import mindustry.gen.Player;
 import mindustry.mod.Scripts;
 import mindustry.ui.Fonts;
@@ -85,12 +86,19 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
     private static final String keyClusterMarkerDistance = "pgmm-clustermarkerdistance";
     private static final String keyReconnectStroke = "pgmm-markerstroke";
     private static final String keyReconnectColor = "pgmm-markerlinecolor";
+    private static final String keyRescueEnabled = "pgmm-rescue";
+    private static final String keyRescueAggressive = "pgmm-rescue-aggressive";
+    private static final String keyRescueWindowSeconds = "pgmm-rescue-window";
+    private static final String keyRescueTopK = "pgmm-rescue-topk";
+    private static final String keyRescueStroke = "pgmm-rescue-stroke";
+    private static final String keyRescueColor = "pgmm-rescue-color";
     //debounce cache rebuilds after block changes (tenths of a second)
     private static final String keyUpdateWaitTenths = "pgmm-updatewait";
 
     private final PowerGridCache cache = new PowerGridCache();
     private final Color markerColor = new Color(Color.white);
     private final Color reconnectColor = new Color(Color.orange);
+    private final Color rescueColor = new Color(Color.scarlet);
 
     private float nextAttachAttempt = 0f;
     private boolean shownAttachToast = false;
@@ -102,6 +110,8 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
 
     private final SplitWatcher splitWatcher = new SplitWatcher();
     private final SplitAlert alert = new SplitAlert();
+    private final RescueAdvisor rescueAdvisor = new RescueAdvisor();
+    private final RescueAlert rescueAlert = new RescueAlert();
     private final MindustryXMarkers xMarkers = new MindustryXMarkers();
     private final Mi2MinimapIntegration mi2 = new Mi2MinimapIntegration();
     private final PgmmConsoleApi consoleApi = new PgmmConsoleApi(this);
@@ -122,11 +132,18 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             Core.settings.defaults(keyClusterMarkerDistance, 15);
             Core.settings.defaults(keyReconnectStroke, 2);
             Core.settings.defaults(keyReconnectColor, "ffa500");
+            Core.settings.defaults(keyRescueEnabled, false);
+            Core.settings.defaults(keyRescueAggressive, false);
+            Core.settings.defaults(keyRescueWindowSeconds, 4);
+            Core.settings.defaults(keyRescueTopK, 2);
+            Core.settings.defaults(keyRescueStroke, 2);
+            Core.settings.defaults(keyRescueColor, "ff3344");
             Core.settings.defaults(keyUpdateWaitTenths, 10);
 
             registerSettings();
             refreshMarkerColor();
             refreshReconnectColor();
+            refreshRescueColor();
             xMarkers.tryInit();
             mi2.tryInit();
             installConsoleApi();
@@ -137,6 +154,8 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
 
         Events.on(WorldLoadEvent.class, e -> {
             cache.clear();
+            rescueAlert.clear();
+            rescueAdvisor.reset();
             Time.runTask(10f, this::ensureOverlayAttached);
         });
 
@@ -153,10 +172,11 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             if(Time.time >= nextAttachAttempt){
                 nextAttachAttempt = Time.time + 60f;
                 ensureOverlayAttached();
-                mi2.ensureAttached(cache, markerColor, alert);
+                mi2.ensureAttached(cache, markerColor, alert, rescueAlert, rescueColor);
             }
 
             splitWatcher.update();
+            rescueAdvisor.update();
         });
 
         //draw on top of the full-screen minimap (opened via M).
@@ -281,7 +301,17 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         }
 
         try{
+            rescueAlert.clear();
+        }catch(Throwable ignored){
+        }
+
+        try{
             splitWatcher.reset();
+        }catch(Throwable ignored){
+        }
+
+        try{
+            rescueAdvisor.reset();
         }catch(Throwable ignored){
         }
 
@@ -292,7 +322,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         }
 
         try{
-            mi2.ensureAttached(cache, markerColor, alert);
+            mi2.ensureAttached(cache, markerColor, alert, rescueAlert, rescueColor);
         }catch(Throwable ignored){
         }
     }
@@ -312,7 +342,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             mi2.tryInit();
         }
         mi2.detachIfPresent();
-        mi2.ensureAttached(cache, markerColor, alert);
+        mi2.ensureAttached(cache, markerColor, alert, rescueAlert, rescueColor);
         //ensure something is available to draw immediately
         rescanNow();
     }
@@ -351,7 +381,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             mi2Box.changed(() -> {
                 Core.settings.put(keyDrawOnMi2Minimap, mi2Box.isChecked());
                 //If MI2 exists, attach/detach immediately; otherwise, no-op.
-                mi2.ensureAttached(cache, markerColor, alert);
+                mi2.ensureAttached(cache, markerColor, alert, rescueAlert, rescueColor);
             });
             mi2Box.update(() -> mi2Box.setChecked(Core.settings.getBool(keyDrawOnMi2Minimap, false)));
             table.add(mi2Box).width(Math.min(Core.graphics.getWidth() / 1.2f, 460f)).left().padTop(3f);
@@ -363,6 +393,17 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             table.sliderPref(keyClusterMarkerDistance, 15, 0, 60, 1, v -> v + "");
             table.sliderPref(keyReconnectStroke, 2, 1, 8, 1, v -> v + "");
             table.textPref(keyReconnectColor, "ffa500", v -> refreshReconnectColor());
+
+            table.row();
+            table.add("[accent]" + Core.bundle.get("setting.pgmm.rescue.section", "Power Rescue Advisor (Beta)") + "[]").left().padTop(6f);
+            table.row();
+            table.checkPref(keyRescueEnabled, false);
+            table.checkPref(keyRescueAggressive, false);
+            table.sliderPref(keyRescueWindowSeconds, 4, 1, 15, 1, v -> v + "s");
+            table.sliderPref(keyRescueTopK, 2, 1, 6, 1, v -> v + "");
+            table.sliderPref(keyRescueStroke, 2, 1, 8, 1, v -> v + "");
+            table.textPref(keyRescueColor, "ff3344", v -> refreshRescueColor());
+
             table.sliderPref(keyUpdateWaitTenths, 10, 0, 50, 1, v -> (v / 10f) + "s");
         
     }
@@ -384,6 +425,14 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         }
     }
 
+    private void refreshRescueColor(){
+        Color out = rescueColor;
+        String value = Core.settings.getString(keyRescueColor, "ff3344");
+        if(!tryParseHexColor(value, out)){
+            out.set(Color.scarlet);
+        }
+    }
+
     private void ensureOverlayAttached(){
         if(ui == null || ui.hudGroup == null) return;
 
@@ -396,7 +445,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         if(table.getChildren().isEmpty()) return;
         Element base = table.getChildren().get(0);
 
-        MinimapOverlay overlay = new MinimapOverlay(base, cache, markerColor, alert);
+        MinimapOverlay overlay = new MinimapOverlay(base, cache, markerColor, alert, rescueAlert, rescueColor);
         overlay.name = overlayName;
         overlay.touchable = Touchable.disabled;
         table.addChild(overlay);
@@ -473,11 +522,13 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
 
         //reconnect marker on top
         alert.drawWorldMarker(viewRect, invScale);
+        rescueAlert.drawWorldMarker(viewRect, invScale, rescueColor);
 
         Draw.trans(oldTransform);
         Draw.reset();
 
         alert.drawScreenText();
+        rescueAlert.drawScreenText();
     }
 
     private void drawBalanceMarkersOnFullMap(Rect viewRect, float invScale){
@@ -562,16 +613,20 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         private final PowerGridCache cache;
         private final Color markerColor;
         private final SplitAlert alert;
+        private final RescueAlert rescueAlert;
+        private final Color rescueColor;
 
         private final Rect viewRect = new Rect();
         private final Mat transform = new Mat();
         private final Mat oldTransform = new Mat();
 
-        public MinimapOverlay(Element base, PowerGridCache cache, Color markerColor, SplitAlert alert){
+        public MinimapOverlay(Element base, PowerGridCache cache, Color markerColor, SplitAlert alert, RescueAlert rescueAlert, Color rescueColor){
             this.base = base;
             this.cache = cache;
             this.markerColor = markerColor;
             this.alert = alert;
+            this.rescueAlert = rescueAlert;
+            this.rescueColor = rescueColor;
         }
 
         @Override
@@ -617,6 +672,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             drawGridColors(invScale);
             drawBalanceMarkers(invScale);
             alert.drawHudMinimapMarker(invScale, viewRect);
+            rescueAlert.drawHudMinimapMarker(invScale, viewRect, rescueColor);
 
             Draw.trans(oldTransform);
             Draw.reset();
@@ -775,7 +831,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             return available;
         }
 
-        void ensureAttached(PowerGridCache cache, Color markerColor, SplitAlert alert){
+        void ensureAttached(PowerGridCache cache, Color markerColor, SplitAlert alert, RescueAlert rescueAlert, Color rescueColor){
             if(!Core.settings.getBool(keyDrawOnMi2Minimap, false)){
                 detachIfPresent();
                 return;
@@ -820,7 +876,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                 if(existing != null) return;
                 if(minimap.parent == null) return;
 
-                Mi2Overlay overlay = new Mi2Overlay(minimap, cache, markerColor, alert, rectField, setRectMethod);
+                Mi2Overlay overlay = new Mi2Overlay(minimap, cache, markerColor, alert, rescueAlert, rescueColor, rectField, setRectMethod);
                 overlay.name = mi2OverlayName;
                 //important: must have non-zero bounds BEFORE parent culling, otherwise draw() may never run.
                 overlay.setBounds(minimap.x, minimap.y, Math.max(1f, minimap.getWidth()), Math.max(1f, minimap.getHeight()));
@@ -856,6 +912,8 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         private final PowerGridCache cache;
         private final Color markerColor;
         private final SplitAlert alert;
+        private final RescueAlert rescueAlert;
+        private final Color rescueColor;
 
         private final java.lang.reflect.Field rectField;
         private final java.lang.reflect.Method setRectMethod;
@@ -864,11 +922,13 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         private boolean loggedDraw = false;
         private boolean loggedClipFail = false;
 
-        Mi2Overlay(Element base, PowerGridCache cache, Color markerColor, SplitAlert alert, java.lang.reflect.Field rectField, java.lang.reflect.Method setRectMethod){
+        Mi2Overlay(Element base, PowerGridCache cache, Color markerColor, SplitAlert alert, RescueAlert rescueAlert, Color rescueColor, java.lang.reflect.Field rectField, java.lang.reflect.Method setRectMethod){
             this.base = base;
             this.cache = cache;
             this.markerColor = markerColor;
             this.alert = alert;
+            this.rescueAlert = rescueAlert;
+            this.rescueColor = rescueColor;
             this.rectField = rectField;
             this.setRectMethod = setRectMethod;
         }
@@ -960,6 +1020,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
 
             drawBalanceMarkersScreen(scale, invScale);
             alert.drawMinimapMarkerScreen(viewRect, x, y, scaleX, scaleY, parentAlpha);
+            rescueAlert.drawMinimapMarkerScreen(viewRect, x, y, scaleX, scaleY, parentAlpha, rescueColor);
             Draw.reset();
 
             clipEnd();
@@ -1082,80 +1143,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         }
     }
 
-    private static class GridInfo{
-        PowerGraph graph;
-        int colorKey;
-    }
-
-    private static class MarkerInfo{
-        PowerGraph graph;
-        float x, y;
-    }
-
-    private static class MarkerRectInfo{
-        PowerGraph graph;
-        int colorKey;
-        final Rect worldRect = new Rect();
-    }
-
-    private static class FullMinimapAccess{
-        private boolean initialized;
-        private Field panx, pany, zoom, baseSize;
-
-        private void init(Object frag){
-            if(initialized) return;
-            initialized = true;
-            try{
-                Class<?> type = frag.getClass();
-                panx = type.getDeclaredField("panx");
-                pany = type.getDeclaredField("pany");
-                zoom = type.getDeclaredField("zoom");
-                baseSize = type.getDeclaredField("baseSize");
-                panx.setAccessible(true);
-                pany.setAccessible(true);
-                zoom.setAccessible(true);
-                baseSize.setAccessible(true);
-            }catch(Throwable t){
-                Log.err("PGMM: failed to reflect MinimapFragment fields, fullscreen overlay may be misaligned.");
-            }
-        }
-
-        float getPanX(Object frag){
-            init(frag);
-            try{
-                return panx == null ? 0f : panx.getFloat(frag);
-            }catch(Throwable ignored){
-                return 0f;
-            }
-        }
-
-        float getPanY(Object frag){
-            init(frag);
-            try{
-                return pany == null ? 0f : pany.getFloat(frag);
-            }catch(Throwable ignored){
-                return 0f;
-            }
-        }
-
-        float getZoom(Object frag){
-            init(frag);
-            try{
-                return zoom == null ? 1f : zoom.getFloat(frag);
-            }catch(Throwable ignored){
-                return 1f;
-            }
-        }
-
-        float getBaseSize(Object frag, float fallback){
-            init(frag);
-            try{
-                return baseSize == null ? fallback : baseSize.getFloat(frag);
-            }catch(Throwable ignored){
-                return fallback;
-            }
-        }
-    }
+    // Extracted helper types live in `PgmmTypes` (no behavior changes).
 
     private static class PowerGridCache{
         private static float updateWaitTicks(){
@@ -1923,6 +1911,16 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         float expiresAt;
     }
 
+    private static class RescueCutHint{
+        int graphId;
+        int aPos, bPos;
+        float ax, ay, bx, by;
+        float midX, midY;
+        float rescueNetPerTick;
+        float expiresAt;
+        int rank;
+    }
+
     private class SplitAlert{
         private ReconnectHint hint;
         private float textExpiresAt = 0f;
@@ -2026,6 +2024,161 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             Fill.rect(cx, cy, layout.width + Scl.scl(14f), layout.height + Scl.scl(10f));
             Draw.color();
             font.setColor(Color.orange);
+            font.draw(text, cx, cy + layout.height / 2f, 0, Align.center, false);
+
+            font.getData().setScale(1f);
+            font.setColor(Color.white);
+            font.setUseIntegerPositions(ints);
+            Pools.free(layout);
+        }
+    }
+
+    private class RescueAlert{
+        private final Seq<RescueCutHint> hints = new Seq<>(false, 4, RescueCutHint.class);
+        private float textExpiresAt = 0f;
+
+        void clear(){
+            hints.clear();
+            textExpiresAt = 0f;
+        }
+
+        void trigger(int graphId, Seq<RescueCutHint> newHints, boolean showToast){
+            hints.clear();
+            for(int i = 0; i < newHints.size; i++){
+                RescueCutHint h = newHints.get(i);
+                h.graphId = graphId;
+                h.expiresAt = Time.time + 60f * 6f;
+                h.rank = i + 1;
+                hints.add(h);
+            }
+
+            textExpiresAt = Time.time + 60f * 4f;
+            if(showToast && ui != null && ui.hudfrag != null){
+                ui.hudfrag.showToast("[scarlet]" + Core.bundle.get("pgmm.toast.rescue", "Power deficit: rescue hints available") + "[]");
+            }
+
+            //MindustryX integration: add a map mark (no-op on vanilla).
+            if(showToast && !hints.isEmpty()){
+                RescueCutHint h = hints.first();
+                int tileX = Mathf.clamp((int)(h.midX / tilesize), 0, world.width() - 1);
+                int tileY = Mathf.clamp((int)(h.midY / tilesize), 0, world.height() - 1);
+                xMarkers.markRescue(tileX, tileY);
+            }
+        }
+
+        void drawHudMinimapMarker(float invScale, Rect viewRect, Color color){
+            if(hints.isEmpty()) return;
+            float now = Time.time;
+
+            float r = tilesize * 2f * invScale;
+            Draw.z(Drawf.text() + 1f);
+            Draw.color(color);
+            Lines.stroke(Scl.scl(Core.settings.getInt(keyRescueStroke, 2)) * invScale);
+
+            Font font = Fonts.outline;
+            GlyphLayout layout = Pools.obtain(GlyphLayout.class, GlyphLayout::new);
+            boolean ints = font.usesIntegerPositions();
+            font.setUseIntegerPositions(false);
+            float baseFontScale = (1f / 1.25f) / Math.max(0.0001f, Scl.scl(1f));
+            font.getData().setScale(baseFontScale * invScale * 0.95f);
+
+            for(int i = 0; i < hints.size; i++){
+                RescueCutHint h = hints.get(i);
+                if(now > h.expiresAt) continue;
+                if(!viewRect.contains(h.midX, h.midY)) continue;
+
+                Lines.circle(h.midX, h.midY, r);
+                Lines.line(h.ax, h.ay, h.midX, h.midY);
+                Lines.line(h.bx, h.by, h.midX, h.midY);
+
+                String text = "" + h.rank;
+                layout.setText(font, text);
+                Draw.color(0f, 0f, 0f, 0.35f);
+                Fill.rect(h.midX, h.midY, layout.width + 6f * invScale, layout.height + 4f * invScale);
+                Draw.color(color);
+                font.draw(text, h.midX, h.midY + layout.height / 2f, 0, Align.center, false);
+            }
+
+            Draw.reset();
+            font.getData().setScale(1f);
+            font.setColor(Color.white);
+            font.setUseIntegerPositions(ints);
+            Pools.free(layout);
+        }
+
+        void drawMinimapMarkerScreen(Rect viewRect, float uiX, float uiY, float scaleX, float scaleY, float alpha, Color color){
+            if(hints.isEmpty()) return;
+            float now = Time.time;
+
+            float r = tilesize * 2f;
+            Draw.z(Drawf.text() + 1f);
+            Draw.color(color.r, color.g, color.b, color.a * alpha);
+            Lines.stroke(Scl.scl(Core.settings.getInt(keyRescueStroke, 2)));
+
+            for(int i = 0; i < hints.size; i++){
+                RescueCutHint h = hints.get(i);
+                if(now > h.expiresAt) continue;
+                if(!viewRect.contains(h.midX, h.midY)) continue;
+
+                float sx = uiX + (h.midX - viewRect.x) * scaleX;
+                float sy = uiY + (h.midY - viewRect.y) * scaleY;
+                float ax = uiX + (h.ax - viewRect.x) * scaleX;
+                float ay = uiY + (h.ay - viewRect.y) * scaleY;
+                float bx = uiX + (h.bx - viewRect.x) * scaleX;
+                float by = uiY + (h.by - viewRect.y) * scaleY;
+
+                Lines.circle(sx, sy, r);
+                Lines.line(ax, ay, sx, sy);
+                Lines.line(bx, by, sx, sy);
+            }
+
+            Draw.reset();
+        }
+
+        void drawWorldMarker(Rect viewRect, float invScale, Color color){
+            if(hints.isEmpty()) return;
+            float now = Time.time;
+
+            float r = tilesize * 2.2f * invScale;
+            Draw.color(color);
+            Lines.stroke(Scl.scl(Core.settings.getInt(keyRescueStroke, 2)) * invScale);
+
+            for(int i = 0; i < hints.size; i++){
+                RescueCutHint h = hints.get(i);
+                if(now > h.expiresAt) continue;
+                if(!viewRect.contains(h.midX, h.midY)) continue;
+
+                Lines.circle(h.midX, h.midY, r);
+                Lines.line(h.ax, h.ay, h.midX, h.midY);
+                Lines.line(h.bx, h.by, h.midX, h.midY);
+            }
+
+            Draw.reset();
+        }
+
+        void drawScreenText(){
+            if(Time.time > textExpiresAt) return;
+            if(state == null || state.isMenu()) return;
+            if(hints.isEmpty()) return;
+
+            String text = Core.bundle.get("pgmm.rescue.text", "Power deficit: suggested cut links are marked.");
+
+            Font font = Fonts.outline;
+            GlyphLayout layout = Pools.obtain(GlyphLayout.class, GlyphLayout::new);
+            boolean ints = font.usesIntegerPositions();
+            font.setUseIntegerPositions(false);
+
+            float scale = 0.9f / Scl.scl(1f);
+            font.getData().setScale(scale);
+
+            layout.setText(font, text);
+            float cx = Core.graphics.getWidth() / 2f;
+            float cy = Core.graphics.getHeight() / 2f + Scl.scl(150f);
+
+            Draw.color(0f, 0f, 0f, 0.35f);
+            Fill.rect(cx, cy, layout.width + Scl.scl(14f), layout.height + Scl.scl(10f));
+            Draw.color();
+            font.setColor(Color.scarlet);
             font.draw(text, cx, cy + layout.height / 2f, 0, Align.center, false);
 
             font.getData().setScale(1f);
@@ -2386,6 +2539,284 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         }
     }
 
+    private class RescueAdvisor{
+        private final IntMap<Float> negativeSince = new IntMap<>();
+        private float nextScan = 0f;
+        private int lastGraphId = -1;
+        private float lastToast = 0f;
+
+        //reused temp structures to reduce GC pressure
+        private final Seq<Building> tmpConns = new Seq<>(false, 8, Building.class);
+        private final IntSet tmpVisited = new IntSet();
+        private final IntQueue tmpQueue = new IntQueue();
+        private final Seq<RescueCutHint> tmpHints = new Seq<>(false, 8, RescueCutHint.class);
+        private final Seq<RescueCutHint> tmpBest = new Seq<>(false, 8, RescueCutHint.class);
+        private final IntSeq tmpEdgeA = new IntSeq();
+        private final IntSeq tmpEdgeB = new IntSeq();
+
+        void reset(){
+            negativeSince.clear();
+            nextScan = 0f;
+            lastGraphId = -1;
+            lastToast = 0f;
+        }
+
+        void update(){
+            if(!Core.settings.getBool(keyRescueEnabled, false)){
+                rescueAlert.clear();
+                negativeSince.clear();
+                return;
+            }
+
+            if(Time.time < nextScan) return;
+            if(!state.isGame() || world == null || world.isGenerating() || player == null) return;
+
+            float scanInterval = 10f;
+            nextScan = Time.time + scanInterval;
+
+            cache.updateBasic();
+            if(cache.grids.isEmpty()){
+                rescueAlert.clear();
+                return;
+            }
+
+            //track negative duration per graph, pick the worst sustained graph
+            int worstId = -1;
+            float worstBalance = 0f;
+
+            for(int i = 0; i < cache.grids.size; i++){
+                GridInfo info = cache.grids.get(i);
+                PowerGraph graph = info == null ? null : info.graph;
+                if(graph == null) continue;
+                if(!graph.hasPowerBalanceSamples()) continue;
+
+                float balance = graph.getPowerBalance() * 60f; //UI units (/s)
+                int gid = graph.getID();
+
+                if(balance < -0.01f){
+                    if(!negativeSince.containsKey(gid)){
+                        negativeSince.put(gid, Time.time);
+                    }
+                    float since = negativeSince.get(gid, Time.time);
+                    float window = Core.settings.getInt(keyRescueWindowSeconds, 4);
+                    if(Time.time - since >= window){
+                        if(worstId == -1 || balance < worstBalance){
+                            worstId = gid;
+                            worstBalance = balance;
+                        }
+                    }
+                }else{
+                    negativeSince.remove(gid);
+                }
+            }
+
+            if(worstId == -1){
+                rescueAlert.clear();
+                lastGraphId = -1;
+                return;
+            }
+
+            PowerGraph worstGraph = null;
+            for(int i = 0; i < cache.grids.size; i++){
+                GridInfo info = cache.grids.get(i);
+                if(info != null && info.graph != null && info.graph.getID() == worstId){
+                    worstGraph = info.graph;
+                    break;
+                }
+            }
+            if(worstGraph == null){
+                rescueAlert.clear();
+                return;
+            }
+
+            boolean aggressive = Core.settings.getBool(keyRescueAggressive, false);
+            int topk = Mathf.clamp(Core.settings.getInt(keyRescueTopK, 2), 1, 6);
+
+            tmpHints.clear();
+            buildCutHints(worstGraph, aggressive, topk, tmpHints);
+
+            if(tmpHints.isEmpty()){
+                rescueAlert.clear();
+                lastGraphId = worstId;
+                return;
+            }
+
+            //only toast when graph changes or periodically, to avoid spam
+            boolean shouldToast = lastGraphId != worstId || Time.time - lastToast > 60f * 2f;
+            lastGraphId = worstId;
+            if(shouldToast){
+                lastToast = Time.time;
+                rescueAlert.trigger(worstId, tmpHints, true);
+            }else{
+                //refresh hints silently
+                rescueAlert.trigger(worstId, tmpHints, false);
+            }
+        }
+
+        private void buildCutHints(PowerGraph graph, boolean aggressive, int topk, Seq<RescueCutHint> out){
+            if(graph == null || graph.all == null || graph.all.isEmpty()) return;
+
+            //collect candidate link edges (PowerNode laser links); dedupe in a small list
+            tmpEdgeA.clear();
+            tmpEdgeB.clear();
+            for(int i = 0; i < graph.all.size; i++){
+                Building b = graph.all.get(i);
+                if(b == null || b.team != player.team() || b.power == null) continue;
+                if(!(b.block instanceof PowerNode)) continue;
+                IntSeq links = b.power.links;
+                for(int li = 0; li < links.size; li++){
+                    int otherPos = links.get(li);
+                    if(otherPos == b.pos()) continue;
+                    int a = Math.min(b.pos(), otherPos);
+                    int c = Math.max(b.pos(), otherPos);
+                    boolean exists = false;
+                    for(int ei = 0; ei < tmpEdgeA.size; ei++){
+                        if(tmpEdgeA.get(ei) == a && tmpEdgeB.get(ei) == c){
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if(!exists){
+                        tmpEdgeA.add(a);
+                        tmpEdgeB.add(c);
+                    }
+                }
+            }
+
+            if(tmpEdgeA.isEmpty()) return;
+
+            //compute graph totals once (steady-state only; batteries kept separate)
+            float totalProduced = 0f;
+            float totalNeeded = 0f;
+            float totalStored = 0f;
+            for(int i = 0; i < graph.all.size; i++){
+                Building b = graph.all.get(i);
+                if(b == null || b.team != player.team() || b.power == null) continue;
+                totalProduced += b.getPowerProduction() * b.delta();
+                if(b.shouldConsumePower && b.block != null && b.block.consPower != null){
+                    totalNeeded += b.block.consPower.requestedPower(b) * b.delta();
+                }
+                if(b.enabled && b.block != null && b.block.consPower != null && b.block.consPower.buffered && b.block.consPower.capacity > 0f){
+                    totalStored += b.power.status * b.block.consPower.capacity;
+                }
+            }
+
+            tmpBest.clear();
+
+            int maxEdges = aggressive ? 60 : 30;
+            for(int ei = 0; ei < tmpEdgeA.size && ei < maxEdges; ei++){
+                int aPos = tmpEdgeA.get(ei);
+                int bPos = tmpEdgeB.get(ei);
+                Building aBuild = world.build(aPos);
+                Building bBuild = world.build(bPos);
+                if(aBuild == null || bBuild == null) continue;
+                if(aBuild.team != player.team() || bBuild.team != player.team()) continue;
+                if(aBuild.power == null || bBuild.power == null) continue;
+                if(aBuild.power.graph != graph || bBuild.power.graph != graph) continue;
+
+                ComponentStats aSide = computeComponent(graph, aBuild, aBuild.pos(), bBuild.pos());
+                if(aSide.count <= 0) continue;
+
+                float bProduced = totalProduced - aSide.produced;
+                float bNeeded = totalNeeded - aSide.needed;
+                float bStored = Math.max(0f, totalStored - aSide.stored);
+                float netA = aSide.produced - aSide.needed;
+                float netB = bProduced - bNeeded;
+
+                float rescueNet = Math.max(netA, netB);
+                float rescueStored = netA >= netB ? aSide.stored : bStored;
+
+                //require a plausible "can go positive" result; aggressive allows battery-only temporary islands
+                if(rescueNet <= 0.01f){
+                    if(!aggressive) continue;
+                    float deficit = Math.max(0f, -rescueNet);
+                    if(deficit <= 0.001f) continue;
+                    //require at least ~2s of buffer at current deficit rate
+                    if(rescueStored < deficit * 60f * 2f) continue;
+                }
+
+                RescueCutHint hint = new RescueCutHint();
+                hint.aPos = aBuild.pos();
+                hint.bPos = bBuild.pos();
+                hint.ax = aBuild.x;
+                hint.ay = aBuild.y;
+                hint.bx = bBuild.x;
+                hint.by = bBuild.y;
+                hint.midX = (hint.ax + hint.bx) / 2f;
+                hint.midY = (hint.ay + hint.by) / 2f;
+                hint.rescueNetPerTick = rescueNet;
+
+                insertTopK(tmpBest, hint, topk);
+            }
+
+            for(int i = 0; i < tmpBest.size; i++){
+                out.add(tmpBest.get(i));
+            }
+        }
+
+        private void insertTopK(Seq<RescueCutHint> best, RescueCutHint hint, int k){
+            //sort descending by rescue net
+            int idx = 0;
+            for(; idx < best.size; idx++){
+                if(hint.rescueNetPerTick > best.get(idx).rescueNetPerTick){
+                    break;
+                }
+            }
+            best.insert(idx, hint);
+            if(best.size > k){
+                best.truncate(k);
+            }
+        }
+
+        private class ComponentStats{
+            float produced, needed, stored;
+            int count;
+        }
+
+        private ComponentStats computeComponent(PowerGraph graph, Building start, int cutA, int cutB){
+            ComponentStats out = new ComponentStats();
+            tmpVisited.clear();
+            tmpQueue.clear();
+
+            int startPos = start.pos();
+            tmpVisited.add(startPos);
+            tmpQueue.addLast(startPos);
+
+            while(tmpQueue.size > 0){
+                int pos = tmpQueue.removeFirst();
+                Building cur = world.build(pos);
+                if(cur == null || cur.power == null || cur.power.graph != graph) continue;
+                if(cur.team != player.team()) continue;
+
+                out.count++;
+                out.produced += cur.getPowerProduction() * cur.delta();
+                if(cur.shouldConsumePower && cur.block != null && cur.block.consPower != null){
+                    out.needed += cur.block.consPower.requestedPower(cur) * cur.delta();
+                }
+                if(cur.enabled && cur.block != null && cur.block.consPower != null && cur.block.consPower.buffered && cur.block.consPower.capacity > 0f){
+                    out.stored += cur.power.status * cur.block.consPower.capacity;
+                }
+
+                cur.getPowerConnections(tmpConns);
+                for(int i = 0; i < tmpConns.size; i++){
+                    Building next = tmpConns.get(i);
+                    if(next == null || next.power == null) continue;
+                    if(next.power.graph != graph) continue;
+                    int npos = next.pos();
+
+                    //skip the tested link cut (in both directions)
+                    if((pos == cutA && npos == cutB) || (pos == cutB && npos == cutA)) continue;
+
+                    if(tmpVisited.add(npos)){
+                        tmpQueue.addLast(npos);
+                    }
+                }
+            }
+
+            return out;
+        }
+    }
+
     private static class ReconnectResult{
         float midX, midY;
         float ax, ay, bx, by;
@@ -2420,6 +2851,18 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                 newMarkFromChat.invoke(null, text, new Vec2(tileX, tileY));
             }catch(Throwable t){
                 //Disable after first failure to avoid spam.
+                available = false;
+                Log.err("PGMM: MindustryX marker call failed; disabling integration.", t);
+            }
+        }
+
+        void markRescue(int tileX, int tileY){
+            if(!available || newMarkFromChat == null) return;
+            try{
+                String label = Core.bundle.get("pgmm.mark.rescue", "Power rescue");
+                String text = "[scarlet]" + label + "[] (" + tileX + "," + tileY + ")";
+                newMarkFromChat.invoke(null, text, new Vec2(tileX, tileY));
+            }catch(Throwable t){
                 available = false;
                 Log.err("PGMM: MindustryX marker call failed; disabling integration.", t);
             }

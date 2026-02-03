@@ -56,6 +56,8 @@ import java.util.PriorityQueue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static stealthpath.StealthPathMathUtil.*;
+import static stealthpath.StealthPathPathUtil.*;
 import static mindustry.Vars.content;
 import static mindustry.Vars.control;
 import static mindustry.Vars.mobile;
@@ -263,7 +265,8 @@ public class StealthPathMod extends mindustry.mod.Mod{
         return clamp(Core.settings.getInt(keyAutoSlowMultiplier, 8), 1, 60);
     }
 
-    private static int rtsMaxWaypoints(){
+    // Used by StealthPathPathUtil.hashWaypointPath() after extraction.
+    static int rtsMaxWaypoints(){
         return clamp(Core.settings.getInt(keyRtsMaxWaypoints, 12), 2, 80);
     }
 
@@ -414,6 +417,8 @@ public class StealthPathMod extends mindustry.mod.Mod{
             table.pref(new IconTextSetting(keyAutoColorWarn, "ffd60a", Icon.warning, v -> refreshAutoColors()));
             table.pref(new IconTextSetting(keyAutoColorDead, "ff3b30", Icon.cancel, v -> refreshAutoColors()));
             table.pref(new IconCheckSetting(keyAutoMoveEnabled, true, Icon.commandRally, null));
+            table.pref(new IconSliderSetting(keyRtsUpdateInterval, 30, 1, 240, 1, Icon.refresh, v -> Strings.autoFixed(v / 60f, 2) + "s", null));
+            table.pref(new IconSliderSetting(keyRtsCommandSpacing, 2, 0, 10, 1, Icon.info, v -> Strings.autoFixed(v / 60f, 3) + "s", null));
             table.pref(new IconSliderSetting(keyAutoThreatPaddingMax, 6, 0, 20, 1, Icon.warning, v -> v + " tiles", null));
 
             table.pref(new HeaderSetting("@sp.section.gencluster", Icon.power));
@@ -431,7 +436,6 @@ public class StealthPathMod extends mindustry.mod.Mod{
     private void addAdvancedSettingsRow(Table table){
         table.table(Tex.button, t -> {
             t.left().margin(10f);
-            t.image(Icon.settings).size(20f).padRight(8f);
             t.add("@sp.setting.advanced.menu").left().width(170f);
 
             TextButton open = t.button("@sp.setting.advanced.open", Styles.flatt, this::showAdvancedSettingsDialog)
@@ -445,7 +449,7 @@ public class StealthPathMod extends mindustry.mod.Mod{
                 open.setDisabled(!pro);
                 open.setText(pro ? Core.bundle.get("sp.setting.advanced.open") : Core.bundle.get("sp.setting.advanced.locked"));
             });
-        }).width(prefWidth()).left().padTop(6f);
+        }).width(StealthPathUiUtil.prefWidth()).left().padTop(6f);
 
         table.row();
     }
@@ -469,8 +473,6 @@ public class StealthPathMod extends mindustry.mod.Mod{
 
         table.pref(new HeaderSetting("@sp.section.advanced.automove", Icon.commandRally));
         table.pref(new IconSliderSetting(keyRtsMaxWaypoints, 12, 2, 60, 1, Icon.list, v -> String.valueOf(v), null));
-        table.pref(new IconSliderSetting(keyRtsUpdateInterval, 30, 1, 240, 1, Icon.refresh, v -> Strings.autoFixed(v / 60f, 2) + "s", null));
-        table.pref(new IconSliderSetting(keyRtsCommandSpacing, 2, 0, 10, 1, Icon.info, v -> Strings.autoFixed(v / 60f, 3) + "s", null));
         table.pref(new IconCheckSetting(keyAutoBatchEnabled, true, Icon.commandRally, null));
         table.pref(new IconSliderSetting(keyAutoBatchSizePct, 100, 50, 200, 10, Icon.resize, v -> v + "%", null));
         table.pref(new IconSliderSetting(keyAutoBatchDelayPct, 100, 0, 200, 10, Icon.refresh, v -> v + "%", null));
@@ -2289,112 +2291,21 @@ public class StealthPathMod extends mindustry.mod.Mod{
 
     private void refreshGenPathColor(){
         String value = Core.settings.getString(keyGenPathColor, "3c7bff");
-        if(!tryParseHexColor(value, genPathColor)){
+        if(!StealthPathMathUtil.tryParseHexColor(value, genPathColor)){
             genPathColor.set(0.235f, 0.48f, 1f, 1f);
         }
     }
 
     private void refreshMousePathColor(){
         String value = Core.settings.getString(keyMousePathColor, "a27ce5");
-        if(!tryParseHexColor(value, mousePathColor)){
+        if(!StealthPathMathUtil.tryParseHexColor(value, mousePathColor)){
             mousePathColor.set(0.635f, 0.486f, 0.898f, 1f);
         }
     }
 
-    private static boolean tryParseHexColor(String text, Color out){
-        if(text == null) return false;
-        String value = text.trim();
-        if(value.startsWith("#")){
-            value = value.substring(1);
-        }
+    // Path conversions extracted into `StealthPathPathUtil`.
 
-        int len = value.length();
-        if(len != 6 && len != 8) return false;
-
-        try{
-            long parsed = Long.parseLong(value, 16);
-            if(len == 6){
-                float r = ((parsed >> 16) & 0xff) / 255f;
-                float g = ((parsed >> 8) & 0xff) / 255f;
-                float b = (parsed & 0xff) / 255f;
-                out.set(r, g, b, 1f);
-            }else{
-                float r = ((parsed >> 24) & 0xff) / 255f;
-                float g = ((parsed >> 16) & 0xff) / 255f;
-                float b = ((parsed >> 8) & 0xff) / 255f;
-                float a = (parsed & 0xff) / 255f;
-                out.set(r, g, b, a);
-            }
-            return true;
-        }catch(Throwable ignored){
-            return false;
-        }
-    }
-
-    private static Seq<Pos> toWorldPoints(IntSeq tilePath, int width, Unit unit, Building target){
-        Seq<Pos> out = new Seq<>();
-        out.add(new Pos(unit.x, unit.y));
-
-        for(int i = 0; i < tilePath.size; i++){
-            int idx = tilePath.items[i];
-            int tx = idx % width;
-            int ty = idx / width;
-            out.add(new Pos(tileToWorld(tx), tileToWorld(ty)));
-        }
-
-        out.add(new Pos(target.x, target.y));
-        return out;
-    }
-
-    private static Seq<Pos> toWorldPointsFromTiles(IntSeq tilePath, int width, Building target){
-        Seq<Pos> out = new Seq<>();
-        if(tilePath == null || tilePath.isEmpty()) return out;
-
-        for(int i = 0; i < tilePath.size; i++){
-            int idx = tilePath.items[i];
-            int tx = idx % width;
-            int ty = idx / width;
-            out.add(new Pos(tileToWorld(tx), tileToWorld(ty)));
-        }
-
-        if(target != null){
-            out.add(new Pos(target.x, target.y));
-        }
-
-        return out;
-    }
-
-    private static Seq<Pos> toWorldPointsFromTilesWithStart(IntSeq tilePath, int width, float startWorldX, float startWorldY, Building target){
-        Seq<Pos> out = new Seq<>();
-        out.add(new Pos(startWorldX, startWorldY));
-
-        if(tilePath != null && !tilePath.isEmpty()){
-            for(int i = 0; i < tilePath.size; i++){
-                int idx = tilePath.items[i];
-                int tx = idx % width;
-                int ty = idx / width;
-                out.add(new Pos(tileToWorld(tx), tileToWorld(ty)));
-            }
-        }
-
-        if(target != null){
-            out.add(new Pos(target.x, target.y));
-        }
-
-        return out;
-    }
-
-    private static float tileToWorld(int tile){
-        return tile * tilesize;
-    }
-
-    private static int worldToTile(float world){
-        return Math.round(world / tilesize);
-    }
-
-    private static boolean inBounds(ThreatMap map, int x, int y){
-        return x >= 0 && y >= 0 && x < map.width && y < map.height;
-    }
+    // Generic helpers extracted into `StealthPathMathUtil` (no behavior changes).
 
     private ThreatMap buildThreatMap(Unit unit, boolean includeUnits, boolean moveFlying, boolean threatsAir, boolean threatsGround, float passClearanceWorld, float threatClearanceWorld){
         ThreatMap map = new ThreatMap(world.width(), world.height());
@@ -2520,24 +2431,40 @@ public class StealthPathMod extends mindustry.mod.Mod{
             Building b = builds.get(i);
             if(b == null) continue;
             if(b.team == player.team()) continue;
-            if(!(b.block instanceof ForceProjector)) continue;
-            if(!(b instanceof ForceProjector.ForceBuild)) continue;
-            ForceProjector.ForceBuild fb = (ForceProjector.ForceBuild)b;
 
-            float r = fb.realRadius() + inflate;
+            float r = 0f;
+
+            // Campaign/editor base shields that repel/kill units inside their radius.
+            // See Mindustry core: mindustry.world.blocks.defense.BaseShield
+            if(b.block != null && b.block.name != null){
+                String name = b.block.name;
+                float base = name.equals("shield-projector") ? 200f : (name.equals("large-shield-projector") ? 400f : 0f);
+                if(base > 0.001f){
+                    float eff = Mathf.clamp(b.efficiency, 0f, 1f);
+                    r = base * eff + inflate;
+                }
+            }
+
+            // Standard force projectors (kept for compatibility).
+            if(r <= 0.001f && b.block instanceof ForceProjector && b instanceof ForceProjector.ForceBuild){
+                ForceProjector.ForceBuild fb = (ForceProjector.ForceBuild)b;
+                r = fb.realRadius() + inflate;
+            }
+
             if(r <= 0.001f) continue;
 
             float r2 = r * r;
 
-            int minX = clamp((int)Math.ceil((b.x - r) / tilesize), 0, map.width - 1);
-            int maxX = clamp((int)Math.floor((b.x + r) / tilesize), 0, map.width - 1);
-            int minY = clamp((int)Math.ceil((b.y - r) / tilesize), 0, map.height - 1);
-            int maxY = clamp((int)Math.floor((b.y + r) / tilesize), 0, map.height - 1);
+            // Expand bounds slightly; distance is tested using tile centers.
+            int minX = clamp((int)Math.floor((b.x - r) / tilesize) - 1, 0, map.width - 1);
+            int maxX = clamp((int)Math.ceil((b.x + r) / tilesize) + 1, 0, map.width - 1);
+            int minY = clamp((int)Math.floor((b.y - r) / tilesize) - 1, 0, map.height - 1);
+            int maxY = clamp((int)Math.ceil((b.y + r) / tilesize) + 1, 0, map.height - 1);
 
             for(int ty = minY; ty <= maxY; ty++){
-                float wy = tileToWorld(ty);
+                float wy = tileToWorld(ty) + tilesize / 2f;
                 for(int tx = minX; tx <= maxX; tx++){
-                    float wx = tileToWorld(tx);
+                    float wx = tileToWorld(tx) + tilesize / 2f;
                     float dx = wx - b.x;
                     float dy = wy - b.y;
                     float d2 = dx * dx + dy * dy;
@@ -2704,9 +2631,9 @@ public class StealthPathMod extends mindustry.mod.Mod{
         if(target == null) return out;
 
         if(moveFlying){
-            int tx = worldToTile(target.x);
-            int ty = worldToTile(target.y);
-            if(inBounds(map, tx, ty)){
+            int tx = StealthPathMathUtil.worldToTile(target.x);
+            int ty = StealthPathMathUtil.worldToTile(target.y);
+            if(StealthPathMathUtil.inBounds(map, tx, ty)){
                 out.add(tx + ty * map.width);
             }
             return out;
@@ -2730,14 +2657,10 @@ public class StealthPathMod extends mindustry.mod.Mod{
     }
 
     private static void addGoalIfPassable(ThreatMap map, IntSeq out, int x, int y){
-        if(!inBounds(map, x, y)) return;
+        if(!StealthPathMathUtil.inBounds(map, x, y)) return;
         int idx = x + y * map.width;
         if(!map.passable[idx]) return;
         out.add(idx);
-    }
-
-    private static int clamp(int value, int min, int max){
-        return Math.max(min, Math.min(max, value));
     }
 
     private void ensurePathScratch(int size){
@@ -2874,60 +2797,7 @@ public class StealthPathMod extends mindustry.mod.Mod{
         return out;
     }
 
-    private static IntSeq compactPath(IntSeq path, int width){
-        if(path == null || path.size <= 2) return path;
-
-        IntSeq out = new IntSeq();
-        out.add(path.items[0]);
-
-        int prev = path.items[0];
-        int prevDx = 0, prevDy = 0;
-
-        for(int i = 1; i < path.size; i++){
-            int cur = path.items[i];
-            int px = prev % width;
-            int py = prev / width;
-            int cx = cur % width;
-            int cy = cur / width;
-
-            int dx = Integer.compare(cx, px);
-            int dy = Integer.compare(cy, py);
-
-            if(i == 1){
-                prevDx = dx;
-                prevDy = dy;
-            }else if(dx != prevDx || dy != prevDy){
-                out.add(prev);
-                prevDx = dx;
-                prevDy = dy;
-            }
-
-            prev = cur;
-        }
-
-        out.add(path.peek());
-        return out;
-    }
-
-    private static int hashWaypointPath(IntSeq tilePath, int width){
-        if(tilePath == null || tilePath.isEmpty()) return 0;
-
-        IntSeq compact = compactPath(tilePath, width);
-        if(compact == null || compact.isEmpty()) compact = tilePath;
-
-        int maxWaypoints = rtsMaxWaypoints();
-        int step = Math.max(1, compact.size / maxWaypoints);
-
-        int h = 1;
-        for(int i = 0; i < compact.size; i += step){
-            h = 31 * h + compact.items[i];
-        }
-
-        int last = compact.items[compact.size - 1];
-        h = 31 * h + last;
-        h = 31 * h + compact.size;
-        return h;
-    }
+    // Path compaction/hash extracted into `StealthPathPathUtil`.
 
     private static float estimateDamage(ThreatMap map, IntSeq tilePath, Unit unit){
         if(tilePath == null || tilePath.size <= 1) return 0f;
@@ -2970,153 +2840,7 @@ public class StealthPathMod extends mindustry.mod.Mod{
         ui.showInfoToast(text, seconds);
     }
 
-    private static class HeaderSetting extends SettingsMenuDialog.SettingsTable.Setting{
-        private final String titleKeyOrText;
-        private final arc.scene.style.Drawable icon;
-
-        public HeaderSetting(String titleKeyOrText, arc.scene.style.Drawable icon){
-            super("sp-header");
-            this.titleKeyOrText = titleKeyOrText;
-            this.icon = icon;
-        }
-
-        @Override
-        public void add(SettingsMenuDialog.SettingsTable table){
-            table.row();
-            table.table(t -> {
-                t.left();
-                if(icon != null){
-                    t.image(icon).size(18f).padRight(6f);
-                }
-                t.add(titleKeyOrText.startsWith("@") ? Core.bundle.get(titleKeyOrText.substring(1)) : titleKeyOrText)
-                    .color(Color.gray)
-                    .left()
-                    .growX()
-                    .wrap();
-            }).padTop(12f).padBottom(4f).left().growX();
-            table.row();
-        }
-    }
-
-    private static float prefWidth(){
-        return Math.min(Core.graphics.getWidth() / 1.2f, 560f);
-    }
-
-    private static class IconCheckSetting extends SettingsMenuDialog.SettingsTable.Setting{
-        private final boolean def;
-        private final Drawable icon;
-        private final Cons<Boolean> changed;
-
-        public IconCheckSetting(String name, boolean def, Drawable icon, Cons<Boolean> changed){
-            super(name);
-            this.def = def;
-            this.icon = icon;
-            this.changed = changed;
-        }
-
-        @Override
-        public void add(SettingsMenuDialog.SettingsTable table){
-            CheckBox box = new CheckBox(title);
-            box.getLabel().setWrap(true);
-            box.getLabelCell().growX().minWidth(0f);
-
-            box.update(() -> box.setChecked(Core.settings.getBool(name, def)));
-
-            box.changed(() -> {
-                Core.settings.put(name, box.isChecked());
-                if(changed != null) changed.get(box.isChecked());
-            });
-
-            table.table(Tex.button, t -> {
-                t.left().margin(10f);
-                if(icon != null) t.image(icon).size(20f).padRight(8f);
-                t.add(box).left().growX().minWidth(0f);
-            }).width(prefWidth()).left().padTop(6f);
-
-            addDesc(box);
-            table.row();
-        }
-    }
-
-    private static class IconSliderSetting extends SettingsMenuDialog.SettingsTable.Setting{
-        private final int def, min, max, step;
-        private final Drawable icon;
-        private final SettingsMenuDialog.StringProcessor sp;
-        private final arc.func.Intc changed;
-
-        public IconSliderSetting(String name, int def, int min, int max, int step, Drawable icon, SettingsMenuDialog.StringProcessor sp, arc.func.Intc changed){
-            super(name);
-            this.def = def;
-            this.min = min;
-            this.max = max;
-            this.step = step;
-            this.icon = icon;
-            this.sp = sp;
-            this.changed = changed;
-        }
-
-        @Override
-        public void add(SettingsMenuDialog.SettingsTable table){
-            Slider slider = new Slider(min, max, step, false);
-            slider.setValue(Core.settings.getInt(name, def));
-
-            Label value = new Label("", Styles.outlineLabel);
-            Table content = new Table();
-            content.left();
-            if(icon != null) content.image(icon).size(20f).padRight(8f);
-            content.add(title, Styles.outlineLabel).left().growX().minWidth(0f).wrap();
-            content.add(value).padLeft(10f).right();
-            content.margin(3f, 16f, 3f, 16f);
-            content.touchable = Touchable.disabled;
-
-            slider.changed(() -> {
-                int v = (int)slider.getValue();
-                Core.settings.put(name, v);
-                value.setText(sp == null ? String.valueOf(v) : sp.get(v));
-                if(changed != null) changed.get(v);
-            });
-
-            slider.change();
-
-            addDesc(table.stack(slider, content).width(prefWidth()).left().padTop(6f).get());
-            table.row();
-        }
-    }
-
-    private static class IconTextSetting extends SettingsMenuDialog.SettingsTable.Setting{
-        private final String def;
-        private final Drawable icon;
-        private final Cons<String> changed;
-
-        public IconTextSetting(String name, String def, Drawable icon, Cons<String> changed){
-            super(name);
-            this.def = def;
-            this.icon = icon;
-            this.changed = changed;
-        }
-
-        @Override
-        public void add(SettingsMenuDialog.SettingsTable table){
-            final TextField[] fieldRef = {null};
-            table.table(Tex.button, t -> {
-                t.left().margin(10f);
-                if(icon != null) t.image(icon).size(20f).padRight(8f);
-
-                t.add(title).left().growX().minWidth(0f).wrap();
-
-                TextField field = t.field(Core.settings.getString(name, def), text -> {
-                    Core.settings.put(name, text);
-                    if(changed != null) changed.get(text);
-                }).growX().minWidth(140f).get();
-
-                field.setMessageText(def);
-                fieldRef[0] = field;
-            }).width(prefWidth()).left().padTop(6f);
-
-            if(fieldRef[0] != null) addDesc(fieldRef[0]);
-            table.row();
-        }
-    }
+    // Settings widgets extracted into `StealthPathSettingsWidgets` (same behavior; smaller main file).
 
     private void onChatMessage(String message){
         if(message == null) return;
@@ -3181,171 +2905,5 @@ public class StealthPathMod extends mindustry.mod.Mod{
         return anySurvive ? autoWarnColor : autoDeadColor;
     }
 
-    private static class Pos{
-        final float x, y;
-
-        Pos(float x, float y){
-            this.x = x;
-            this.y = y;
-        }
-    }
-
-    private static class RenderPath{
-        final Seq<Pos> points;
-        final Color color;
-        final String damageText;
-
-        RenderPath(Seq<Pos> points, Color color, float damage){
-            this.points = points == null ? new Seq<Pos>() : points;
-            this.color = color == null ? Color.white : color;
-            this.damageText = Float.isFinite(damage) ? Strings.autoFixed(Math.max(0f, damage), 1) : null;
-        }
-    }
-
-    private static class Threat{
-        final float x, y;
-        final float range;
-        final float minRange;
-        final float dps;
-
-        Threat(float x, float y, float range, float minRange, float dps){
-            this.x = x;
-            this.y = y;
-            this.range = Math.max(0f, range);
-            this.minRange = Math.max(0f, minRange);
-            this.dps = Math.max(0f, dps);
-        }
-    }
-
-    private static class ThreatMap{
-        final int width, height, size;
-        final boolean[] passable;
-        final float[] risk;
-        short[] safeDist;
-        float safeBias;
-
-        ThreatMap(int width, int height){
-            this.width = width;
-            this.height = height;
-            this.size = width * height;
-            this.passable = new boolean[size];
-            this.risk = new float[size];
-        }
-    }
-
-    private static class PathResult{
-        final IntSeq path;
-
-        PathResult(IntSeq path){
-            this.path = path;
-        }
-    }
-
-    private static class Node implements Comparable<Node>{
-        final int idx;
-        final float f;
-        final float g;
-
-        Node(int idx, float f, float g){
-            this.idx = idx;
-            this.f = f;
-            this.g = g;
-        }
-
-        @Override
-        public int compareTo(Node other){
-            return Float.compare(this.f, other.f);
-        }
-    }
-
-    private static class ClusterPath{
-        final Building target;
-        final IntSeq path;
-        final boolean safe;
-        final float damage;
-
-        ClusterPath(Building target, IntSeq path, boolean safe, float damage){
-            this.target = target;
-            this.path = path;
-            this.safe = safe;
-            this.damage = damage;
-        }
-    }
-
-    private static class ShiftedPath{
-        final IntSeq path;
-        final float dx, dy;
-        final float dmgGround, dmgAir;
-        final float maxDmg;
-        final short minSafeDist;
-
-        ShiftedPath(IntSeq path, float dx, float dy, float dmgGround, float dmgAir, float maxDmg, short minSafeDist){
-            this.path = path;
-            this.dx = dx;
-            this.dy = dy;
-            this.dmgGround = dmgGround;
-            this.dmgAir = dmgAir;
-            this.maxDmg = maxDmg;
-            this.minSafeDist = minSafeDist;
-        }
-    }
-
-    private static class ControlledCluster{
-        final Seq<Unit> units;
-        final int key;
-        final float x, y;
-        final Unit moveUnit;
-        final float speed;
-        final int threatMode;
-        final boolean moveFlying;
-        final boolean threatsAir, threatsGround;
-        final boolean hasGround;
-        final float minSpeedGround;
-        final float minHpGround;
-        final boolean hasAir;
-        final float minSpeedAir;
-        final float minHpAir;
-
-        final float leftX, leftY;
-        final float rightX, rightY;
-        final float topX, topY;
-        final float bottomX, bottomY;
-
-        final float maxHitRadiusWorld;
-        final float threatClearanceWorld;
-
-        ControlledCluster(Seq<Unit> units, int key, float x, float y, Unit moveUnit, float speed, int threatMode, boolean moveFlying, boolean threatsAir, boolean threatsGround,
-                          boolean hasGround, float minSpeedGround, float minHpGround,
-                          boolean hasAir, float minSpeedAir, float minHpAir,
-                          float leftX, float leftY, float rightX, float rightY, float topX, float topY, float bottomX, float bottomY,
-                          float maxHitRadiusWorld, float threatClearanceWorld){
-            this.units = units == null ? new Seq<>() : units;
-            this.key = key;
-            this.x = x;
-            this.y = y;
-            this.moveUnit = moveUnit;
-            this.speed = speed;
-            this.threatMode = threatMode;
-            this.moveFlying = moveFlying;
-            this.threatsAir = threatsAir;
-            this.threatsGround = threatsGround;
-            this.hasGround = hasGround;
-            this.minSpeedGround = minSpeedGround;
-            this.minHpGround = minHpGround;
-            this.hasAir = hasAir;
-            this.minSpeedAir = minSpeedAir;
-            this.minHpAir = minHpAir;
-
-            this.leftX = leftX;
-            this.leftY = leftY;
-            this.rightX = rightX;
-            this.rightY = rightY;
-            this.topX = topX;
-            this.topY = topY;
-            this.bottomX = bottomX;
-            this.bottomY = bottomY;
-            this.maxHitRadiusWorld = maxHitRadiusWorld;
-            this.threatClearanceWorld = threatClearanceWorld;
-        }
-    }
+    // Pathfinding / rendering data types extracted into `StealthPathPathTypes` (no behavior changes).
 }
