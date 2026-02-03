@@ -3,7 +3,7 @@ plugins{
 }
 
 group = "bektools"
-version = "1.0.12"
+version = "5.0.0"
 
 repositories{
     mavenCentral()

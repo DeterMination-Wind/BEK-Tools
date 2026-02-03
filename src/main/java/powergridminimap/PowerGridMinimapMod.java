@@ -519,6 +519,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                     powerTable.setHostedByOverlayUI(true);
                     xPowerTableWindow = xOverlayUi.registerWindow(powerTableName, powerTable, () -> state != null && state.isGame());
                     if(xPowerTableWindow != null){
+                        xOverlayUi.tryConfigureWindow(xPowerTableWindow, false, true);
                         //sync initial state immediately (so enabling the PGMM setting shows the panel without extra clicks)
                         boolean enabled = Core.settings.getBool(keyPowerTableEnabled, false);
                         lastPowerTableEnabled = enabled;
@@ -2443,6 +2444,32 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         }
 
         @Override
+        public float getMinWidth(){
+            return hostedByOverlayUI ? 0f : super.getMinWidth();
+        }
+
+        @Override
+        public float getMinHeight(){
+            return hostedByOverlayUI ? 0f : super.getMinHeight();
+        }
+
+        @Override
+        public float getPrefWidth(){
+            if(!hostedByOverlayUI) return super.getPrefWidth();
+            float pref = super.getPrefWidth();
+            float w = parent != null ? parent.getWidth() : width;
+            return w > 0.001f ? Math.max(pref, w) : pref;
+        }
+
+        @Override
+        public float getPrefHeight(){
+            if(!hostedByOverlayUI) return super.getPrefHeight();
+            float pref = super.getPrefHeight();
+            float h = parent != null ? parent.getHeight() : height;
+            return h > 0.001f ? Math.max(pref, h) : pref;
+        }
+
+        @Override
         public void act(float delta){
             super.act(delta);
 
@@ -2574,6 +2601,8 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         private Method getData;
         private Method setEnabled;
         private Method setPinned;
+        private Method setResizable;
+        private Method setAutoHeight;
 
         boolean isInstalled(){
             if(initialized) return installed;
@@ -2615,6 +2644,16 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             }
         }
 
+        void tryConfigureWindow(Object window, boolean autoHeight, boolean resizable){
+            if(window == null) return;
+            try{
+                tryInitWindowAccessors(window);
+                if(setAutoHeight != null) setAutoHeight.invoke(window, autoHeight);
+                if(setResizable != null) setResizable.invoke(window, resizable);
+            }catch(Throwable ignored){
+            }
+        }
+
         void setEnabledAndPinned(Object window, boolean enabled, boolean pinned){
             if(window == null) return;
             try{
@@ -2639,6 +2678,16 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                     setAvailability = wc.getMethod("setAvailability", Prov.class);
                 }catch(Throwable ignored){
                     setAvailability = null;
+                }
+                try{
+                    setResizable = wc.getMethod("setResizable", boolean.class);
+                }catch(Throwable ignored){
+                    setResizable = null;
+                }
+                try{
+                    setAutoHeight = wc.getMethod("setAutoHeight", boolean.class);
+                }catch(Throwable ignored){
+                    setAutoHeight = null;
                 }
                 getData = wc.getMethod("getData");
 
