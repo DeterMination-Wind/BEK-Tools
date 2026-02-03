@@ -23,6 +23,7 @@ import arc.scene.ui.Slider;
 import arc.scene.ui.TextField;
 import arc.scene.ui.TextButton;
 import arc.scene.event.Touchable;
+import arc.scene.ui.layout.Collapser;
 import arc.scene.ui.layout.Table;
 import arc.struct.IntSeq;
 import arc.struct.Seq;
@@ -78,6 +79,9 @@ public class StealthPathMod extends mindustry.mod.Mod{
 
     private static final String keyEnabled = "sp-enabled";
     private static final String keyProMode = "sp-pro-mode";
+    private static final String keyOverlayWindowMode = "sp-ov-window-mode";
+    private static final String keyOverlayWindowDamage = "sp-ov-window-damage";
+    private static final String keyOverlayWindowControls = "sp-ov-window-controls";
     private static final String keyTargetMode = "sp-target-mode";
     private static final String keyTargetBlock = "sp-target-block";
     private static final String keyPathDuration = "sp-path-duration";
@@ -342,6 +346,9 @@ public class StealthPathMod extends mindustry.mod.Mod{
     private void ensureDefaults(){
         Core.settings.defaults(keyEnabled, true);
         Core.settings.defaults(keyProMode, false);
+        Core.settings.defaults(keyOverlayWindowMode, true);
+        Core.settings.defaults(keyOverlayWindowDamage, true);
+        Core.settings.defaults(keyOverlayWindowControls, true);
         Core.settings.defaults(keyTargetMode, targetModeCore);
         Core.settings.defaults(keyTargetBlock, "");
         Core.settings.defaults(keyPathDuration, 10);
@@ -409,11 +416,14 @@ public class StealthPathMod extends mindustry.mod.Mod{
     }
     /** Populates a {@link mindustry.ui.dialogs.SettingsMenuDialog.SettingsTable} with this mod's settings. */
     public void bekBuildSettings(SettingsMenuDialog.SettingsTable table){
-            table.pref(new HeaderSetting("@sp.section.general", Icon.settings));
+            table.pref(new HeaderSetting("@sp.section.general", null));
             table.pref(new IconCheckSetting(keyEnabled, true, Icon.ok, null));
             table.pref(new IconCheckSetting(keyShowToasts, true, Icon.chat, null));
             table.pref(new IconCheckSetting(keyProMode, false, Icon.settings, null));
-            addAdvancedSettingsRow(table);
+            table.pref(new HeaderSetting("@sp.setting.overlayui", null));
+            table.pref(new IconCheckSetting(keyOverlayWindowMode, true, Icon.list, null));
+            table.pref(new IconCheckSetting(keyOverlayWindowDamage, true, Icon.list, null));
+            table.pref(new IconCheckSetting(keyOverlayWindowControls, true, Icon.list, null));
             table.pref(new IconSliderSetting(keyPathDuration, 10, 0, 60, 5, Icon.info, v -> v == 0 ? "inf" : v + "s", null));
             table.pref(new IconSliderSetting(keyPathWidth, 2, 1, 6, 1, Icon.resize, v -> String.valueOf(v), null));
             table.pref(new IconSliderSetting(keyPathAlpha, 85, 0, 100, 5, Icon.image, v -> v + "%", null));
@@ -426,11 +436,11 @@ public class StealthPathMod extends mindustry.mod.Mod{
             table.pref(new IconSliderSetting(keyDamageTextOffsetScale, 100, 0, 300, 10, Icon.move, v -> v + "%", null));
             table.pref(new IconSliderSetting(keyPreviewRefresh, 6, 1, 60, 1, Icon.refresh, v -> Strings.autoFixed(v / 60f, 2) + "s", null));
 
-            table.pref(new HeaderSetting("@sp.section.colors", Icon.pencil));
+            table.pref(new HeaderSetting("@sp.section.colors", null));
             table.pref(new IconTextSetting(keyGenPathColor, "3c7bff", Icon.effect, v -> refreshGenPathColor()));
             table.pref(new IconTextSetting(keyMousePathColor, "a27ce5", Icon.zoom, v -> refreshMousePathColor()));
 
-            table.pref(new HeaderSetting("@sp.section.auto", Icon.commandRally));
+            table.pref(new HeaderSetting("@sp.section.auto", null));
             table.pref(new IconSliderSetting(keyAutoSafeDamageThreshold, 10, 0, 200, 1, Icon.warning, v -> String.valueOf(v), null));
             table.pref(new IconTextSetting(keyAutoColorSafe, "34c759", Icon.ok, v -> refreshAutoColors()));
             table.pref(new IconTextSetting(keyAutoColorWarn, "ffd60a", Icon.warning, v -> refreshAutoColors()));
@@ -440,78 +450,52 @@ public class StealthPathMod extends mindustry.mod.Mod{
             table.pref(new IconSliderSetting(keyRtsCommandSpacing, 2, 0, 10, 1, Icon.info, v -> Strings.autoFixed(v / 60f, 3) + "s", null));
             table.pref(new IconSliderSetting(keyAutoThreatPaddingMax, 6, 0, 20, 1, Icon.warning, v -> v + " tiles", null));
 
-            table.pref(new HeaderSetting("@sp.section.gencluster", Icon.power));
+            table.pref(new HeaderSetting("@sp.section.gencluster", null));
             table.pref(new IconSliderSetting(keyGenClusterMaxPaths, 3, 1, 10, 1, Icon.list, v -> String.valueOf(v), null));
             table.pref(new IconSliderSetting(keyGenClusterMinSize, 2, 2, 10, 1, Icon.filter, v -> String.valueOf(v), null));
             table.pref(new IconCheckSetting(keyGenClusterStartFromCore, false, Icon.players, null));
 
-            table.pref(new HeaderSetting("@sp.section.target", Icon.modeAttack));
+            table.pref(new HeaderSetting("@sp.section.target", null));
             addThreatModeRow(table);
             addTargetRow(table);
+
+            // Inline advanced settings (MindustryX-like: one screen; Pro Mode expands a collapsible section).
+            table.pref(new HeaderSetting("@sp.setting.advanced.menu", null));
+
+            SettingsMenuDialog.SettingsTable advanced = new SettingsMenuDialog.SettingsTable();
+            advanced.left();
+            buildAdvancedSettings(advanced);
+
+            Collapser collapser = new Collapser(advanced, true);
+            collapser.setCollapsed(() -> !Core.settings.getBool(keyProMode, false));
+
+            table.add(collapser).growX().row();
         
     }
 
 
-    private void addAdvancedSettingsRow(Table table){
-        table.table(Tex.button, t -> {
-            t.left().margin(10f);
-            t.add("@sp.setting.advanced.menu").left().width(170f);
-
-            TextButton open = t.button("@sp.setting.advanced.open", Styles.flatt, this::showAdvancedSettingsDialog)
-                .growX()
-                .height(40f)
-                .padLeft(8f)
-                .get();
-
-            open.update(() -> {
-                boolean pro = Core.settings.getBool(keyProMode, false);
-                open.setDisabled(!pro);
-                open.setText(pro ? Core.bundle.get("sp.setting.advanced.open") : Core.bundle.get("sp.setting.advanced.locked"));
-            });
-        }).width(StealthPathUiUtil.prefWidth()).left().padTop(6f);
-
-        table.row();
-    }
-
-    private void showAdvancedSettingsDialog(){
-        if(!Core.settings.getBool(keyProMode, false)){
-            showToast("@sp.toast.pro-required", 2f);
-            return;
-        }
-
-        BaseDialog dialog = new BaseDialog("@sp.advanced.title");
-        dialog.addCloseButton();
-
-        SettingsMenuDialog.SettingsTable table = new SettingsMenuDialog.SettingsTable();
-
-        table.pref(new HeaderSetting("@sp.section.advanced.pathfinding", Icon.modeAttack));
+    private void buildAdvancedSettings(SettingsMenuDialog.SettingsTable table){
+        table.pref(new HeaderSetting("@sp.section.advanced.pathfinding", null));
         table.pref(new IconSliderSetting(keyAutoClusterSplitTiles, 5, 1, 30, 1, Icon.filter, v -> v + " tiles", null));
         table.pref(new IconSliderSetting(keyFormationInflatePct, 125, 100, 300, 5, Icon.resize, v -> v + "%", null));
         table.pref(new IconSliderSetting(keySafeCorridorBiasPct, 35, 0, 200, 5, Icon.info, v -> v + "%", null));
         table.pref(new IconCheckSetting(keyComputeSafeDistance, true, Icon.grid, null));
 
-        table.pref(new HeaderSetting("@sp.section.advanced.automove", Icon.commandRally));
+        table.pref(new HeaderSetting("@sp.section.advanced.automove", null));
         table.pref(new IconSliderSetting(keyRtsMaxWaypoints, 12, 2, 60, 1, Icon.list, v -> String.valueOf(v), null));
         table.pref(new IconCheckSetting(keyAutoBatchEnabled, true, Icon.commandRally, null));
         table.pref(new IconSliderSetting(keyAutoBatchSizePct, 100, 50, 200, 10, Icon.resize, v -> v + "%", null));
         table.pref(new IconSliderSetting(keyAutoBatchDelayPct, 100, 0, 200, 10, Icon.refresh, v -> v + "%", null));
         table.pref(new IconSliderSetting(keyAutoSlowMultiplier, 8, 1, 30, 1, Icon.refresh, v -> v + "x", null));
 
-        table.pref(new HeaderSetting("@sp.section.advanced.cache", Icon.info));
+        table.pref(new HeaderSetting("@sp.section.advanced.cache", null));
         table.pref(new IconSliderSetting(keyPassableCacheEntries, 8, 1, 24, 1, Icon.info, v -> String.valueOf(v), v -> invalidatePassableCache()));
 
-        table.pref(new HeaderSetting("@sp.section.advanced.gencluster", Icon.power));
+        table.pref(new HeaderSetting("@sp.section.advanced.gencluster", null));
         table.pref(new IconSliderSetting(keyGenClusterLinkDistTiles, defaultGenClusterLinkDistTiles, 1, 20, 1, Icon.list, v -> v + " tiles", null));
         table.pref(new IconSliderSetting(keyGenClusterNearTurretDistTiles, defaultGenClusterNearTurretDistTiles, 1, 40, 1, Icon.warning, v -> v + " tiles", null));
         table.pref(new IconSliderSetting(keyGenClusterMinDrawTiles, defaultGenClusterMinDrawTiles, 1, 60, 1, Icon.info, v -> v + " tiles", null));
         table.pref(new IconSliderSetting(keyGenClusterFallbackBacktrackTiles, defaultGenClusterFallbackBacktrackTiles, 0, 60, 1, Icon.refresh, v -> v + " tiles", null));
-
-        ScrollPane pane = new ScrollPane(table);
-        pane.setScrollingDisabled(true, false);
-        pane.setFadeScrollBars(false);
-
-        dialog.cont.add(pane).grow().minHeight(420f);
-        dialog.show();
     }
 
     private void addThreatModeRow(Table table){
@@ -2874,30 +2858,43 @@ public class StealthPathMod extends mindustry.mod.Mod{
         }
 
         boolean enabled = Core.settings.getBool(keyEnabled, true);
+        boolean showMode = Core.settings.getBool(keyOverlayWindowMode, true);
+        boolean showDamage = Core.settings.getBool(keyOverlayWindowDamage, true);
+        boolean showControls = Core.settings.getBool(keyOverlayWindowControls, true);
 
         if(xOverlayUi.isInstalled()){
             try{
                 // When hosted by OverlayUI, do not manage position/size ourselves.
                 if(xModeWindow == null){
                     try{ overlayModeContent.remove(); }catch(Throwable ignored){}
-                    xModeWindow = xOverlayUi.registerWindow("stealthpath-mode", overlayModeContent, () -> state != null && state.isGame());
+                    xModeWindow = xOverlayUi.registerWindow(
+                        "stealthpath-mode",
+                        overlayModeContent,
+                        () -> state != null && state.isGame() && Core.settings.getBool(keyEnabled, true) && Core.settings.getBool(keyOverlayWindowMode, true)
+                    );
                     xOverlayUi.tryConfigureWindow(xModeWindow, false, true);
+                    if(enabled && showMode) xOverlayUi.setEnabledAndPinned(xModeWindow, true, false);
                 }
                 if(xDamageWindow == null){
                     try{ overlayDamageContent.remove(); }catch(Throwable ignored){}
-                    xDamageWindow = xOverlayUi.registerWindow("stealthpath-damage", overlayDamageContent, () -> state != null && state.isGame());
+                    xDamageWindow = xOverlayUi.registerWindow(
+                        "stealthpath-damage",
+                        overlayDamageContent,
+                        () -> state != null && state.isGame() && Core.settings.getBool(keyEnabled, true) && Core.settings.getBool(keyOverlayWindowDamage, true)
+                    );
                     xOverlayUi.tryConfigureWindow(xDamageWindow, false, true);
+                    if(enabled && showDamage) xOverlayUi.setEnabledAndPinned(xDamageWindow, true, false);
                 }
                 if(xControlsWindow == null){
                     try{ overlayControlsContent.remove(); }catch(Throwable ignored){}
-                    xControlsWindow = xOverlayUi.registerWindow("stealthpath-controls", overlayControlsContent, () -> state != null && state.isGame());
+                    xControlsWindow = xOverlayUi.registerWindow(
+                        "stealthpath-controls",
+                        overlayControlsContent,
+                        () -> state != null && state.isGame() && Core.settings.getBool(keyEnabled, true) && Core.settings.getBool(keyOverlayWindowControls, true)
+                    );
                     xOverlayUi.tryConfigureWindow(xControlsWindow, false, true);
+                    if(enabled && showControls) xOverlayUi.setEnabledAndPinned(xControlsWindow, true, false);
                 }
-
-                // Show panels when the mod is enabled, without requiring users to manually add them in OverlayUI.
-                xOverlayUi.setEnabledAndPinned(xModeWindow, enabled, true);
-                xOverlayUi.setEnabledAndPinned(xDamageWindow, enabled, true);
-                xOverlayUi.setEnabledAndPinned(xControlsWindow, enabled, true);
                 return;
             }catch(Throwable ignored){
                 xModeWindow = null;
@@ -2907,9 +2904,21 @@ public class StealthPathMod extends mindustry.mod.Mod{
         }
 
         // Fallback: attach directly to HUD group (vanilla client, or OverlayUI unavailable).
-        attachFallbackHud(overlayModeContent, "sp-ov-mode", 8f, -8f);
-        attachFallbackHud(overlayDamageContent, "sp-ov-dmg", 8f, -84f);
-        attachFallbackHud(overlayControlsContent, "sp-ov-ctl", 8f, -152f);
+        syncFallbackHud(overlayModeContent, "sp-ov-mode", 8f, -8f, enabled && showMode);
+        syncFallbackHud(overlayDamageContent, "sp-ov-dmg", 8f, -84f, enabled && showDamage);
+        syncFallbackHud(overlayControlsContent, "sp-ov-ctl", 8f, -152f, enabled && showControls);
+    }
+
+    private void syncFallbackHud(Table content, String name, float x, float yFromTop, boolean visible){
+        if(ui == null || ui.hudGroup == null) return;
+        Element existing = ui.hudGroup.find(name);
+        if(!visible){
+            if(existing != null){
+                try{ existing.remove(); }catch(Throwable ignored){}
+            }
+            return;
+        }
+        attachFallbackHud(content, name, x, yFromTop);
     }
 
     private void attachFallbackHud(Table content, String name, float x, float yFromTop){

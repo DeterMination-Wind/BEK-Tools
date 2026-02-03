@@ -9,6 +9,7 @@ import arc.scene.ui.Label;
 import arc.scene.ui.Slider;
 import arc.scene.ui.TextField;
 import arc.scene.ui.layout.Table;
+import mindustry.graphics.Pal;
 import mindustry.gen.Tex;
 import mindustry.ui.Styles;
 import mindustry.ui.dialogs.SettingsMenuDialog;
@@ -33,17 +34,17 @@ final class HeaderSetting extends SettingsMenuDialog.SettingsTable.Setting{
     @Override
     public void add(SettingsMenuDialog.SettingsTable table){
         table.row();
-        table.table(t -> {
-            t.left();
+        table.table(Styles.black3, t -> {
+            t.left().margin(8f);
             if(icon != null){
                 t.image(icon).size(18f).padRight(6f);
             }
             t.add(titleKeyOrText.startsWith("@") ? Core.bundle.get(titleKeyOrText.substring(1)) : titleKeyOrText)
-                .color(arc.graphics.Color.gray)
+                .color(Pal.accent)
                 .left()
                 .growX()
                 .wrap();
-        }).padTop(12f).padBottom(4f).left().growX();
+        }).padTop(10f).left().growX();
         table.row();
     }
 }
@@ -163,4 +164,3 @@ final class IconTextSetting extends SettingsMenuDialog.SettingsTable.Setting{
         table.row();
     }
 }
-
