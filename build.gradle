@@ -3,7 +3,12 @@ plugins{
 }
 
 group = "bektools"
-version = "2.0.3"
+version = "2.0.4"
+
+java{
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
 
 repositories{
     mavenCentral()
@@ -23,6 +28,10 @@ dependencies{
 
 tasks.withType(JavaCompile).configureEach{
     options.encoding = "UTF-8"
+    // Mindustry Android requires Java 8 bytecode.
+    if(JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_1_9)){
+        options.release.set(8)
+    }
 }
 
 jar{
