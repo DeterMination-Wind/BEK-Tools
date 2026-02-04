@@ -68,7 +68,10 @@ final class AdvancedButtonSetting extends SettingsMenuDialog.SettingsTable.Setti
                 .padLeft(10f)
                 .get();
 
-            btn.update(() -> btn.setDisabled(!Core.settings.getBool(RadialBuildMenuMod.keyProMode, false)));
+            btn.update(() -> btn.setDisabled(
+                !Core.settings.getBool(RadialBuildMenuMod.keyProMode, false)
+                    && !Core.settings.getBool(RadialBuildMenuMod.keyToggleSlotGroupsEnabled, false)
+            ));
         }).width(prefWidth).padTop(6f).get();
 
         addDesc(root);

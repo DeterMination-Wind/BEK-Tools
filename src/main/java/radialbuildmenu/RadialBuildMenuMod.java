@@ -86,6 +86,12 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     private static final String keyCenterScreen = "rbm-center-screen";
     static final String keyProMode = "rbm-pro-mode";
     private static final String keyTimeMinutes = "rbm-time-minutes";
+    private static final String keyShowEmptySlots = "rbm-show-empty-slots";
+
+    static final String keyToggleSlotGroupsEnabled = "rbm-toggle-slot-groups-enabled";
+    private static final String keyToggleSlotGroupState = "rbm-toggle-slot-groups-state";
+    private static final String keyToggleSlotGroupASlotPrefix = "rbm-toggle-slotgroup-a-";
+    private static final String keyToggleSlotGroupBSlotPrefix = "rbm-toggle-slotgroup-b-";
 
     private static final String keyHoverUpdateFrames = "rbm-hover-update-frames";
     private static final String keyHoverPadding = "rbm-hover-padding";
@@ -126,6 +132,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     };
 
     public static final KeyBind radialMenu = KeyBind.add("rbm_radial_menu", KeyCode.unset, "blocks");
+    public static final KeyBind toggleSlotGroup = KeyBind.add("rbm_toggle_slot_group", KeyCode.unset, "blocks");
 
     private final MindustryXOverlayUI xOverlayUi = new MindustryXOverlayUI();
     private Object xMobileToggleWindow;
@@ -172,6 +179,10 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         Core.settings.defaults(keyCenterScreen, false);
         Core.settings.defaults(keyProMode, false);
         Core.settings.defaults(keyTimeMinutes, 0);
+        Core.settings.defaults(keyShowEmptySlots, false);
+
+        Core.settings.defaults(keyToggleSlotGroupsEnabled, false);
+        Core.settings.defaults(keyToggleSlotGroupState, 0);
 
         Core.settings.defaults(keyHoverUpdateFrames, 0);
         Core.settings.defaults(keyHoverPadding, 12);
@@ -187,6 +198,9 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             Core.settings.defaults(keySlotPrefix + i, def);
             // Time profile is a separate slot set; default it to the standard defaults.
             Core.settings.defaults(keyTimeSlotPrefix + i, def);
+            // Slot-group toggle profiles. Group A starts from the standard defaults; Group B is empty.
+            Core.settings.defaults(keyToggleSlotGroupASlotPrefix + i, def);
+            Core.settings.defaults(keyToggleSlotGroupBSlotPrefix + i, "");
             // planet-specific overrides are empty by default
             Core.settings.defaults(keyTimeErekirSlotPrefix + i, "");
             Core.settings.defaults(keyTimeSerpuloSlotPrefix + i, "");
@@ -213,8 +227,14 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     }
     /** Populates a {@link mindustry.ui.dialogs.SettingsMenuDialog.SettingsTable} with this mod's settings. */
     public void bekBuildSettings(SettingsMenuDialog.SettingsTable table){
+            boolean toggleEnabled = Core.settings.getBool(keyToggleSlotGroupsEnabled, false);
+
             table.pref(new IconCheckSetting(keyEnabled, true, mindustry.gen.Icon.hammer));
             table.pref(new HotkeySetting());
+
+            table.pref(new HeaderSetting(Core.bundle.get("rbm.section.slotgroups"), mindustry.gen.Icon.refresh));
+            table.pref(new IconCheckSetting(keyToggleSlotGroupsEnabled, false, mindustry.gen.Icon.refresh));
+            table.pref(new ToggleSlotGroupHotkeySetting());
 
             table.pref(new HeaderSetting(Core.bundle.get("rbm.section.appearance"), mindustry.gen.Icon.pencil));
             table.pref(new IconSliderSetting(keyHudScale, 100, 50, 200, 5, mindustry.gen.Icon.resizeSmall, v -> v + "%"));
@@ -223,15 +243,18 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             table.pref(new IconSliderSetting(keyOuterRadius, 140, 60, 360, 5, mindustry.gen.Icon.move, v -> v + "px"));
             table.pref(new HudColorSetting());
             table.pref(new IconCheckSetting(keyCenterScreen, false, mindustry.gen.Icon.move));
+            table.pref(new IconCheckSetting(keyShowEmptySlots, false, mindustry.gen.Icon.list));
             table.pref(new IconCheckSetting(keyProMode, false, mindustry.gen.Icon.settings));
             table.pref(new AdvancedButtonSetting(RadialBuildMenuMod.this));
 
-            table.pref(new HeaderSetting(Core.bundle.get("rbm.section.base"), mindustry.gen.Icon.list));
-            for(int i = 0; i < maxSlots; i++) table.pref(new SlotSetting(i, keySlotPrefix, "rbm.setting.slot"));
+            if(!toggleEnabled){
+                table.pref(new HeaderSetting(Core.bundle.get("rbm.section.base"), mindustry.gen.Icon.list));
+                for(int i = 0; i < maxSlots; i++) table.pref(new SlotSetting(i, keySlotPrefix, "rbm.setting.slot"));
 
-            table.pref(new HeaderSetting(Core.bundle.get("rbm.section.time"), mindustry.gen.Icon.refresh));
-            table.pref(new TimeMinutesSetting());
-            for(int i = 0; i < maxSlots; i++) table.pref(new SlotSetting(i, keyTimeSlotPrefix, "rbm.setting.timeslot"));
+                table.pref(new HeaderSetting(Core.bundle.get("rbm.section.time"), mindustry.gen.Icon.refresh));
+                table.pref(new TimeMinutesSetting());
+                for(int i = 0; i < maxSlots; i++) table.pref(new SlotSetting(i, keyTimeSlotPrefix, "rbm.setting.timeslot"));
+            }
 
             table.pref(new HeaderSetting(Core.bundle.get("rbm.section.io"), mindustry.gen.Icon.info));
             table.pref(new IoSetting());
@@ -244,6 +267,12 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         dialog.addCloseButton();
 
         SettingsMenuDialog.SettingsTable adv = new SettingsMenuDialog.SettingsTable();
+
+        adv.pref(new HeaderSetting(Core.bundle.get("rbm.advanced.section.slotgroups"), mindustry.gen.Icon.refresh));
+        adv.pref(new SubHeaderSetting("@rbm.slotgroup.a"));
+        for(int i = 0; i < maxSlots; i++) adv.pref(new SlotSetting(i, keyToggleSlotGroupASlotPrefix, "rbm.setting.slot"));
+        adv.pref(new SubHeaderSetting("@rbm.slotgroup.b"));
+        for(int i = 0; i < maxSlots; i++) adv.pref(new SlotSetting(i, keyToggleSlotGroupBSlotPrefix, "rbm.setting.slot"));
 
         adv.pref(new CollapsiblePlanetSetting(
             Core.bundle.get("rbm.advanced.planet.erekir"),
@@ -365,6 +394,34 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
                 t.image(mindustry.gen.Icon.settings).size(20f).padRight(8f);
                 t.add(title).left().growX().minWidth(0f).wrap();
                 t.label(() -> radialMenu.value.key.toString()).color(Pal.accent).padLeft(10f);
+                t.button("@rbm.setting.opencontrols", Styles.flatt, () -> ui.controls.show())
+                    .width(190f)
+                    .height(40f)
+                    .padLeft(10f);
+            }).width(prefWidth).padTop(6f);
+            table.row();
+        }
+    }
+
+    private class ToggleSlotGroupHotkeySetting extends SettingsMenuDialog.SettingsTable.Setting{
+        public ToggleSlotGroupHotkeySetting(){
+            super("rbm-toggle-slot-group-hotkey");
+            title = Core.bundle.get("rbm.setting.toggleHotkey");
+        }
+
+        @Override
+        public void add(SettingsMenuDialog.SettingsTable table){
+            float prefWidth = prefWidth();
+            table.table(Tex.button, t -> {
+                t.left().margin(10f);
+
+                t.image(mindustry.gen.Icon.refresh).size(20f).padRight(8f);
+                t.add(title).left().growX().minWidth(0f).wrap();
+                t.label(() -> toggleSlotGroup.value.key.toString()).color(Pal.accent).padLeft(10f);
+                t.label(() -> {
+                    int g = Mathf.clamp(Core.settings.getInt(keyToggleSlotGroupState, 0), 0, 1);
+                    return Core.bundle.get(g == 0 ? "rbm.slotgroup.a" : "rbm.slotgroup.b");
+                }).color(Pal.accent).padLeft(8f);
                 t.button("@rbm.setting.opencontrols", Styles.flatt, () -> ui.controls.show())
                     .width(190f)
                     .height(40f)
@@ -883,6 +940,12 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     }
 
     private Block contextSlotBlock(int slot){
+        // Slot-group toggle mode: ignore all other rule systems and only use the two configured groups.
+        if(Core.settings.getBool(keyToggleSlotGroupsEnabled, false)){
+            int group = Mathf.clamp(Core.settings.getInt(keyToggleSlotGroupState, 0), 0, 1);
+            return slotBlock(group == 0 ? keyToggleSlotGroupASlotPrefix : keyToggleSlotGroupBSlotPrefix, slot);
+        }
+
         boolean pro = Core.settings.getBool(keyProMode, false);
 
         if(pro){
@@ -920,6 +983,17 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         }
 
         return slotBlock(keySlotPrefix, slot);
+    }
+
+    private void toggleSlotGroupNow(boolean showToast){
+        if(!Core.settings.getBool(keyToggleSlotGroupsEnabled, false)) return;
+        int cur = Mathf.clamp(Core.settings.getInt(keyToggleSlotGroupState, 0), 0, 1);
+        int next = 1 - cur;
+        Core.settings.put(keyToggleSlotGroupState, next);
+        if(showToast && ui != null){
+            String groupName = Core.bundle.get(next == 0 ? "rbm.slotgroup.a" : "rbm.slotgroup.b");
+            ui.showInfoFade(Core.bundle.format("rbm.slotgroup.switched", groupName));
+        }
     }
 
     private void updateConditionalState(){
@@ -1137,7 +1211,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
 
     private String exportConfig(){
         Jval root = Jval.newObject();
-        root.put("schema", 3);
+        root.put("schema", 4);
 
         root.put("hudScale", Core.settings.getInt(keyHudScale, 100));
         root.put("hudAlpha", Core.settings.getInt(keyHudAlpha, 100));
@@ -1148,6 +1222,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         root.put("ringAlpha", Core.settings.getInt(keyRingAlpha, 65));
         root.put("ringStroke", Core.settings.getInt(keyRingStroke, 2));
         root.put("hudColor", normalizeHex(Core.settings.getString(keyHudColor, defaultHudColorHex())));
+        root.put("showEmptySlots", Core.settings.getBool(keyShowEmptySlots, false));
         root.put("proMode", Core.settings.getBool(keyProMode, false));
         root.put("planetErekirEnabled", Core.settings.getBool(keyPlanetErekirEnabled, true));
         root.put("planetSerpuloEnabled", Core.settings.getBool(keyPlanetSerpuloEnabled, true));
@@ -1166,6 +1241,11 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         root.put("condAfterExpr", Core.settings.getString(keyCondAfterExpr, ""));
         root.put("condInitialSlots", exportSlots(keyCondInitialSlotPrefix));
         root.put("condAfterSlots", exportSlots(keyCondAfterSlotPrefix));
+
+        root.put("toggleSlotGroupsEnabled", Core.settings.getBool(keyToggleSlotGroupsEnabled, false));
+        root.put("toggleSlotGroupState", Mathf.clamp(Core.settings.getInt(keyToggleSlotGroupState, 0), 0, 1));
+        root.put("toggleSlotsA", exportSlots(keyToggleSlotGroupASlotPrefix));
+        root.put("toggleSlotsB", exportSlots(keyToggleSlotGroupBSlotPrefix));
 
         root.put("slots", exportSlots(keySlotPrefix));
         root.put("timeSlots", exportSlots(keyTimeSlotPrefix));
@@ -1203,6 +1283,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             if(root.has("ringAlpha")) Core.settings.put(keyRingAlpha, root.getInt("ringAlpha", 65));
             if(root.has("ringStroke")) Core.settings.put(keyRingStroke, root.getInt("ringStroke", 2));
             if(root.has("hudColor")) Core.settings.put(keyHudColor, normalizeHex(root.getString("hudColor", defaultHudColorHex())));
+            if(root.has("showEmptySlots")) Core.settings.put(keyShowEmptySlots, root.getBool("showEmptySlots", false));
             if(root.has("proMode")) Core.settings.put(keyProMode, root.getBool("proMode", false));
             if(root.has("planetErekirEnabled")) Core.settings.put(keyPlanetErekirEnabled, root.getBool("planetErekirEnabled", true));
             if(root.has("planetSerpuloEnabled")) Core.settings.put(keyPlanetSerpuloEnabled, root.getBool("planetSerpuloEnabled", true));
@@ -1221,6 +1302,11 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             if(root.has("condAfterExpr")) Core.settings.put(keyCondAfterExpr, root.getString("condAfterExpr", ""));
             if(root.has("condInitialSlots")) importSlots(root.get("condInitialSlots"), keyCondInitialSlotPrefix);
             if(root.has("condAfterSlots")) importSlots(root.get("condAfterSlots"), keyCondAfterSlotPrefix);
+
+            if(root.has("toggleSlotGroupsEnabled")) Core.settings.put(keyToggleSlotGroupsEnabled, root.getBool("toggleSlotGroupsEnabled", false));
+            if(root.has("toggleSlotGroupState")) Core.settings.put(keyToggleSlotGroupState, Mathf.clamp(root.getInt("toggleSlotGroupState", 0), 0, 1));
+            if(root.has("toggleSlotsA")) importSlots(root.get("toggleSlotsA"), keyToggleSlotGroupASlotPrefix);
+            if(root.has("toggleSlotsB")) importSlots(root.get("toggleSlotsB"), keyToggleSlotGroupBSlotPrefix);
 
             if(root.has("slots")) importSlots(root.get("slots"), keySlotPrefix);
             if(root.has("timeSlots")) importSlots(root.get("timeSlots"), keyTimeSlotPrefix);
@@ -1395,6 +1481,15 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
                     centerY = getHeight() / 2f;
                 }
 
+                if(Core.settings.getBool(keyToggleSlotGroupsEnabled, false) && Core.input.keyTap(toggleSlotGroup)){
+                    mod.toggleSlotGroupNow(true);
+                    for(int i = 0; i < slots.length; i++){
+                        slots[i] = mod.contextSlotBlock(i);
+                    }
+                    rebuildActiveSlotLists();
+                    hovered = findHovered();
+                }
+
                 updateHovered();
 
                 if(Core.input.keyRelease(radialMenu)){
@@ -1405,6 +1500,9 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
                     close();
                 }
             }else{
+                if(Core.settings.getBool(keyToggleSlotGroupsEnabled, false) && Core.input.keyTap(toggleSlotGroup)){
+                    mod.toggleSlotGroupNow(true);
+                }
                 if(mobile) return;
                 if(canActivate() && Core.input.keyTap(radialMenu)){
                     begin();
@@ -1650,6 +1748,32 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         }
 
         private void rebuildActiveSlotLists(){
+            boolean showEmpty = Core.settings.getBool(keyShowEmptySlots, false);
+
+            if(showEmpty){
+                innerCount = slotsPerRing;
+                for(int i = 0; i < slotsPerRing; i++){
+                    innerIndices[i] = i;
+                }
+
+                int configuredOuter = 0;
+                for(int i = 0; i < slotsPerRing; i++){
+                    if(slots[slotsPerRing + i] != null) configuredOuter++;
+                }
+
+                outerActive = configuredOuter > 0;
+                if(outerActive){
+                    outerCount = slotsPerRing;
+                    for(int i = 0; i < slotsPerRing; i++){
+                        outerIndices[i] = slotsPerRing + i;
+                    }
+                }else{
+                    outerCount = 0;
+                }
+
+                return;
+            }
+
             innerCount = 0;
             outerCount = 0;
 
