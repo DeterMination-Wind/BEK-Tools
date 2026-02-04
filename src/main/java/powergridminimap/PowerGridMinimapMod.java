@@ -14,7 +14,10 @@ import arc.math.Mathf;
 import arc.math.geom.Point2;
 import arc.math.geom.Rect;
 import arc.scene.Element;
+import arc.scene.event.ClickListener;
+import arc.scene.event.InputEvent;
 import arc.scene.style.TextureRegionDrawable;
+import arc.scene.ui.TextButton;
 import arc.scene.ui.layout.Table;
 import arc.struct.ObjectSet;
 import arc.struct.Seq;
@@ -56,6 +59,7 @@ import mindustry.gen.Player;
 import mindustry.mod.Scripts;
 import mindustry.ui.Fonts;
 import mindustry.ui.dialogs.SettingsMenuDialog;
+import mindustry.ui.Styles;
 import mindustry.world.blocks.power.PowerNode;
 import mindustry.world.blocks.power.PowerGraph;
 import mindustry.mod.Mods;
@@ -123,6 +127,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
     private final SplitWatcher splitWatcher = new SplitWatcher();
     private final SplitAlert alert = new SplitAlert();
     private final RescueAdvisor rescueAdvisor = new RescueAdvisor();
+    private final Vec2 tmpGridCenter = new Vec2();
     private final RescueAlert rescueAlert = new RescueAlert();
     private final PowerTableOverlay powerTable = new PowerTableOverlay();
     private final MindustryXMarkers xMarkers = new MindustryXMarkers();
@@ -528,9 +533,56 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         }
 
         powerTable.name = powerTableName;
-        powerTable.touchable = Touchable.disabled;
+        powerTable.setHostedByOverlayUI(false);
         ui.hudGroup.addChild(powerTable);
         powerTable.toFront();
+    }
+
+    private void focusGridCenter(GridInfo info){
+        PowerGraph graph = info == null ? null : info.graph;
+        if(graph == null) return;
+
+        Core.app.post(() -> {
+            if(!state.isGame() || world == null || world.isGenerating() || player == null) return;
+            if(Core.camera == null) return;
+
+            if(!computeGridCenter(info, tmpGridCenter)) return;
+
+            float minx = tilesize / 2f;
+            float miny = tilesize / 2f;
+            float maxx = Math.max(minx, world.unitWidth() - tilesize / 2f);
+            float maxy = Math.max(miny, world.unitHeight() - tilesize / 2f);
+            float x = Mathf.clamp(tmpGridCenter.x, minx, maxx);
+            float y = Mathf.clamp(tmpGridCenter.y, miny, maxy);
+
+            Core.camera.position.set(x, y);
+            Core.camera.update();
+        });
+    }
+
+    private boolean computeGridCenter(GridInfo info, Vec2 out){
+        if(info == null) return false;
+        if(info.hasCenter){
+            out.set(info.centerX, info.centerY);
+            return true;
+        }
+
+        PowerGraph graph = info.graph;
+        if(graph == null || graph.all == null || graph.all.isEmpty()) return false;
+
+        float sumx = 0f, sumy = 0f;
+        int count = 0;
+        Seq<mindustry.gen.Building> all = graph.all;
+        for(int i = 0; i < all.size; i++){
+            mindustry.gen.Building b = all.get(i);
+            if(b == null || b.team != player.team()) continue;
+            sumx += b.x;
+            sumy += b.y;
+            count++;
+        }
+        if(count <= 0) return false;
+        out.set(sumx / count, sumy / count);
+        return true;
     }
 
     private void drawWorldRescueOverlay(){
@@ -1402,6 +1454,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             PowerGraph graph = info.graph;
             if(graph == null || graph.all == null || graph.all.isEmpty()) return;
             info.colorKey = graph.getID();
+            info.hasCenter = false;
 
             //Collect occupied tiles (all linked tiles for each building) for this graph.
             tmpOccupied.clear();
@@ -1499,6 +1552,10 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             }
 
             if(tmpClusters.isEmpty() || totalCount <= 0) return;
+
+            info.centerX = totalSumX / totalCount;
+            info.centerY = totalSumY / totalCount;
+            info.hasCenter = true;
 
             int thresholdTiles = Core.settings.getInt(keyClusterMarkerDistance, 15);
             //Partition the graph into multiple rectangles using MST cut:
@@ -2423,6 +2480,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
 
         void setHostedByOverlayUI(boolean hosted){
             hostedByOverlayUI = hosted;
+            touchable = hostedByOverlayUI ? Touchable.enabled : Touchable.disabled;
         }
 
         @Override
@@ -2551,7 +2609,19 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                 table(row -> {
                     row.left();
                     row.image(whiteDrawable).size(6f).color(gridColor);
-                    row.add("#" + gid).color(cId).padLeft(4f);
+
+                    TextButton idButton = new TextButton("#" + gid, Styles.cleart);
+                    idButton.getLabel().setColor(cId);
+                    idButton.addListener(new ClickListener(){
+                        @Override
+                        public void clicked(InputEvent event, float x, float y){
+                            //Only make this interactive when hosted by OverlayUI, so the HUD-anchored fallback stays click-through.
+                            if(hostedByOverlayUI){
+                                focusGridCenter(info);
+                            }
+                        }
+                    });
+                    row.add(idButton).padLeft(4f);
 
                     row.add("in").color(cKey).padLeft(8f);
                     row.add(UI.formatAmount((long)powerIn)).color(cKey);

@@ -213,17 +213,17 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
     }
     /** Populates a {@link mindustry.ui.dialogs.SettingsMenuDialog.SettingsTable} with this mod's settings. */
     public void bekBuildSettings(SettingsMenuDialog.SettingsTable table){
-            table.checkPref(keyEnabled, true);
+            table.pref(new IconCheckSetting(keyEnabled, true, mindustry.gen.Icon.hammer));
             table.pref(new HotkeySetting());
 
             table.pref(new HeaderSetting(Core.bundle.get("rbm.section.appearance"), mindustry.gen.Icon.pencil));
-            table.sliderPref(keyHudScale, 100, 50, 200, 5, v -> v + "%");
-            table.sliderPref(keyHudAlpha, 100, 0, 100, 5, v -> v + "%");
-            table.sliderPref(keyInnerRadius, 80, 40, 200, 5, v -> v + "px");
-            table.sliderPref(keyOuterRadius, 140, 60, 360, 5, v -> v + "px");
+            table.pref(new IconSliderSetting(keyHudScale, 100, 50, 200, 5, mindustry.gen.Icon.resizeSmall, v -> v + "%"));
+            table.pref(new IconSliderSetting(keyHudAlpha, 100, 0, 100, 5, mindustry.gen.Icon.eye, v -> v + "%"));
+            table.pref(new IconSliderSetting(keyInnerRadius, 80, 40, 200, 5, mindustry.gen.Icon.move, v -> v + "px"));
+            table.pref(new IconSliderSetting(keyOuterRadius, 140, 60, 360, 5, mindustry.gen.Icon.move, v -> v + "px"));
             table.pref(new HudColorSetting());
-            table.checkPref(keyCenterScreen, false);
-            table.checkPref(keyProMode, false);
+            table.pref(new IconCheckSetting(keyCenterScreen, false, mindustry.gen.Icon.move));
+            table.pref(new IconCheckSetting(keyProMode, false, mindustry.gen.Icon.settings));
             table.pref(new AdvancedButtonSetting(RadialBuildMenuMod.this));
 
             table.pref(new HeaderSetting(Core.bundle.get("rbm.section.base"), mindustry.gen.Icon.list));
@@ -250,7 +250,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             mindustry.gen.Icon.modeAttack,
             "rbm-adv-erekir-open",
             t -> {
-                t.checkPref(keyPlanetErekirEnabled, true);
+                t.pref(new IconCheckSetting(keyPlanetErekirEnabled, true, mindustry.gen.Icon.modeAttack));
                 t.pref(new SubHeaderSetting("@rbm.advanced.initial"));
                 for(int i = 0; i < maxSlots; i++) t.pref(new SlotSetting(i, keyPlanetErekirSlotPrefix, "rbm.setting.slot"));
                 t.pref(new SubHeaderSetting("@rbm.advanced.time"));
@@ -264,7 +264,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             mindustry.gen.Icon.modeAttack,
             "rbm-adv-serpulo-open",
             t -> {
-                t.checkPref(keyPlanetSerpuloEnabled, true);
+                t.pref(new IconCheckSetting(keyPlanetSerpuloEnabled, true, mindustry.gen.Icon.modeAttack));
                 t.pref(new SubHeaderSetting("@rbm.advanced.initial"));
                 for(int i = 0; i < maxSlots; i++) t.pref(new SlotSetting(i, keyPlanetSerpuloSlotPrefix, "rbm.setting.slot"));
                 t.pref(new SubHeaderSetting("@rbm.advanced.time"));
@@ -278,7 +278,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             mindustry.gen.Icon.modeAttack,
             "rbm-adv-sun-open",
             t -> {
-                t.checkPref(keyPlanetSunEnabled, true);
+                t.pref(new IconCheckSetting(keyPlanetSunEnabled, true, mindustry.gen.Icon.modeAttack));
                 t.pref(new SubHeaderSetting("@rbm.advanced.initial"));
                 for(int i = 0; i < maxSlots; i++) t.pref(new SlotSetting(i, keyPlanetSunSlotPrefix, "rbm.setting.slot"));
                 t.pref(new SubHeaderSetting("@rbm.advanced.time"));
@@ -294,7 +294,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         adv.pref(new WideSliderSetting(keyRingStroke, 2, 1, 6, 1, v -> v + "px"));
 
         adv.pref(new HeaderSetting(Core.bundle.get("rbm.advanced.section.interaction"), mindustry.gen.Icon.modeAttack));
-        adv.checkPref(keyDirectionSelect, true);
+        adv.pref(new IconCheckSetting(keyDirectionSelect, true, mindustry.gen.Icon.modeAttack));
         adv.pref(new WideSliderSetting(keyDeadzoneScale, 35, 0, 100, 5, v -> v + "%"));
         adv.pref(new WideSliderSetting(keyHoverPadding, 12, 0, 30, 1, v -> v + "px"));
 
@@ -335,20 +335,15 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         public void add(SettingsMenuDialog.SettingsTable table){
             float width = prefWidth();
             table.row();
-            table.table(Tex.button, t -> {
-                t.left().margin(10f);
-
-                Image stripe = t.image(Tex.whiteui).size(4f, 18f).padRight(10f).get();
-                stripe.setScaling(Scaling.stretch);
-                stripe.update(() -> stripe.setColor(readHudColor()));
-
+            table.table(Styles.black3, t -> {
+                t.left().margin(8f);
                 if(icon != null){
-                    Image ic = t.image(icon).size(18f).padRight(8f).get();
-                    ic.update(() -> ic.setColor(readHudColor()));
+                    t.image(icon).size(18f).padRight(6f);
                 }
-
-                t.add(title).color(Color.lightGray).left().growX().minWidth(0f).wrap();
-            }).width(width).padTop(10f).padBottom(4f).left();
+                t.add(title).color(Pal.accent).left().growX().minWidth(0f).wrap();
+            }).width(width).padTop(10f).padBottom(5f).left();
+            table.row();
+            table.image(Tex.whiteui).color(Pal.accent).height(3f).width(width).padBottom(10f).left();
             table.row();
         }
     }
@@ -366,10 +361,6 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             float prefWidth = prefWidth();
             table.table(Tex.button, t -> {
                 t.left().margin(10f);
-
-                Image stripe = t.image(Tex.whiteui).size(4f, 32f).padRight(10f).get();
-                stripe.setScaling(Scaling.stretch);
-                stripe.update(() -> stripe.setColor(readHudColor()));
 
                 t.image(mindustry.gen.Icon.settings).size(20f).padRight(8f);
                 t.add(title).left().growX().minWidth(0f).wrap();
@@ -401,15 +392,11 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             float prefWidth = prefWidth();
             table.table(Tex.button, t -> {
                  t.left().margin(10f);
-
-                 Image stripe = t.image(Tex.whiteui).size(4f, 32f).padRight(10f).get();
-                 stripe.setScaling(Scaling.stretch);
-                 stripe.update(() -> stripe.setColor(readHudColor()));
- 
+  
                  t.add(title).width(160f).left().wrap();
                  t.table(info -> {
                      info.left();
- 
+  
                      Image icon = info.image(Tex.clear).size(32f).padRight(8f).get();
                      icon.setScaling(Scaling.fit);
 
@@ -449,9 +436,6 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
 
                 t.table(top -> {
                     top.left();
-                    Image stripe = top.image(Tex.whiteui).size(4f, 20f).padRight(10f).get();
-                    stripe.setScaling(Scaling.stretch);
-                    stripe.update(() -> stripe.setColor(readHudColor()));
                     top.image(mindustry.gen.Icon.pencil).size(20f).padRight(8f);
                     top.add(title).left().growX().minWidth(0f).wrap();
                 }).growX().fillX();
@@ -541,13 +525,8 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             final Image[] arrow = {null};
             Table header = table.table(Tex.button, t -> {
                 t.left().margin(10f);
-
-                Image stripe = t.image(Tex.whiteui).size(4f, 18f).padRight(10f).get();
-                stripe.setScaling(Scaling.stretch);
-                stripe.update(() -> stripe.setColor(accent == null ? Pal.accent : accent.get()));
-
                 if(icon != null) t.image(icon).size(18f).padRight(6f);
-                t.add(titleText).color(Color.gray).left().growX().minWidth(0f).wrap();
+                t.add(titleText).color(Pal.accent).left().growX().minWidth(0f).wrap();
                 arrow[0] = t.image(startOpen ? mindustry.gen.Icon.downOpen : mindustry.gen.Icon.rightOpen).size(18f).padLeft(6f).get();
             }).width(width).padTop(10f).get();
             table.row();
@@ -620,9 +599,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             float prefWidth = prefWidth();
             table.table(Tex.button, t -> {
                 t.left().margin(10f);
-                Image stripe = t.image(Tex.whiteui).size(4f, 32f).padRight(10f).get();
-                stripe.setScaling(Scaling.stretch);
-                stripe.update(() -> stripe.setColor(readHudColor()));
+                t.image(mindustry.gen.Icon.refresh).size(20f).padRight(8f);
                 t.add(title, Styles.outlineLabel).left().growX().minWidth(0f).wrap();
                 t.add(field).width(140f).padLeft(8f);
             }).width(prefWidth).padTop(6f);
@@ -647,9 +624,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
 
             Table root = table.table(Tex.button, t -> {
                 t.left().margin(10f);
-                Image stripe = t.image(Tex.whiteui).size(4f, 32f).padRight(10f).get();
-                stripe.setScaling(Scaling.stretch);
-                stripe.update(() -> stripe.setColor(mod.readHudColor()));
+                t.image(mindustry.gen.Icon.logic).size(20f).padRight(8f);
                 t.add(title, Styles.outlineLabel).left().growX().minWidth(0f).wrap();
 
                 arc.scene.ui.CheckBox box = new arc.scene.ui.CheckBox("");
@@ -781,10 +756,6 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             float prefWidth = prefWidth();
             table.table(Tex.button, t -> {
                 t.left().margin(10f);
-
-                Image stripe = t.image(Tex.whiteui).size(4f, 32f).padRight(10f).get();
-                stripe.setScaling(Scaling.stretch);
-                stripe.update(() -> stripe.setColor(readHudColor()));
 
                 t.image(mindustry.gen.Icon.info).size(20f).padRight(8f);
                 t.add(title).width(140f).left().wrap();

@@ -16,6 +16,8 @@ import java.lang.reflect.Field;
 final class GridInfo{
     PowerGraph graph;
     int colorKey;
+    float centerX, centerY;
+    boolean hasCenter;
 }
 
 final class MarkerInfo{
@@ -93,4 +95,3 @@ final class FullMinimapAccess{
         }
     }
 }
-
