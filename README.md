@@ -153,9 +153,7 @@ Android requires a mod package that contains `classes.dex`. Download `Neon.jar` 
 
 ### Feedback
 
-BEK mods feedback group (QQ): https://qm.qq.com/q/cZWzPa4cTu
-
-![BEK mods feedback group QR](docs/bek-feedback-group.png)
+Discord: https://discord.com/channels/391020510269669376/1467903894716940522
 
 ### Build (Optional)
 
