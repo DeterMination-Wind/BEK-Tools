@@ -1450,6 +1450,19 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             }
 
             for(PowerGraph graph : graphs){
+                if(graph == null || graph.all == null) continue;
+
+                //Ignore "single-building grids" to reduce minimap noise; they are often stray nodes and not useful to render.
+                int buildCount = 0;
+                Seq<mindustry.gen.Building> all = graph.all;
+                for(int bi = 0; bi < all.size; bi++){
+                    mindustry.gen.Building b = all.get(bi);
+                    if(b == null || b.team != player.team()) continue;
+                    buildCount++;
+                    if(buildCount > 1) break;
+                }
+                if(buildCount <= 1) continue;
+
                 GridInfo info = new GridInfo();
                 info.graph = graph;
                 grids.add(info);
