@@ -1460,10 +1460,41 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         private final Block[] slots = new Block[maxSlots];
         private boolean outerActive;
         private final Color hudColor = new Color();
+
+        // Cached per-frame HUD geometry/metrics (avoids recomputing settings + trig in multiple methods).
+        private final HudLayout layout = new HudLayout();
+
         private final int[] innerIndices = new int[slotsPerRing];
         private final int[] outerIndices = new int[slotsPerRing];
         private int innerCount;
         private int outerCount;
+
+        private static final class HudLayout{
+            float alpha;
+            float scale;
+            float iconSize;
+            float innerRadius;
+            float innerRadius2;
+            float outerRadius;
+
+            float slotBack;
+            float strokeNorm;
+            float strokeHover;
+
+            float hit2;
+            float deadzone2;
+            float backRadius;
+            float backRadius2;
+
+            float ringStroke;
+            float ringAlpha;
+            float backStrength;
+
+            final float[] innerX = new float[slotsPerRing];
+            final float[] innerY = new float[slotsPerRing];
+            final float[] outerX = new float[slotsPerRing];
+            final float[] outerY = new float[slotsPerRing];
+        }
 
         public RadialHud(RadialBuildMenuMod mod){
             this.mod = mod;
@@ -1558,39 +1589,94 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             }
         }
 
-        @Override
-        public void draw(){
-            if(!active) return;
+        private void updateLayout(){
+            HudLayout l = layout;
 
+            // Read settings once, derive all geometry, and precompute slot positions.
             float alpha = parentAlpha * Mathf.clamp(Core.settings.getInt(keyHudAlpha, 100) / 100f);
             float scale = Mathf.clamp(Core.settings.getInt(keyHudScale, 100) / 100f, 0.1f, 5f);
-            float innerSetting = Core.settings.getInt(keyInnerRadius, 80);
-            float outerSetting = Core.settings.getInt(keyOuterRadius, 140);
+            int innerSetting = Core.settings.getInt(keyInnerRadius, 80);
+            int outerSetting = Core.settings.getInt(keyOuterRadius, 140);
             float radiusScale = Mathf.clamp((innerSetting / 80f + outerSetting / 140f) / 2f, 0.5f, 3f);
 
             float iconSizeScale = Mathf.clamp(Core.settings.getInt(keyIconScale, 100) / 100f, 0.2f, 5f);
             float iconSize = Scl.scl(46f) * scale * radiusScale * iconSizeScale;
-            float innerRadius = Scl.scl(Core.settings.getInt(keyInnerRadius, 80)) * scale;
-            float outerRadius = Scl.scl(Core.settings.getInt(keyOuterRadius, 140)) * scale;
+
+            float innerRadius = Scl.scl(innerSetting) * scale;
+            float outerRadius = Scl.scl(outerSetting) * scale;
             outerRadius = Math.max(outerRadius, innerRadius + iconSize * 1.15f);
-            float slotBack = iconSize / 2f + Scl.scl(10f) * scale;
-            float strokeNorm = Scl.scl(1.6f) * scale;
-            float strokeHover = Scl.scl(2.4f) * scale;
+
+            float hoverPadding = Math.max(0, Core.settings.getInt(keyHoverPadding, 12));
+            float hit = iconSize / 2f + Scl.scl(hoverPadding) * scale;
+
+            float deadzone = iconSize * Mathf.clamp(Core.settings.getInt(keyDeadzoneScale, 35) / 100f);
+
+            float outer = outerActive ? outerRadius : innerRadius;
+            float backRadius = outer + iconSize * 0.75f;
+
+            l.alpha = alpha;
+            l.scale = scale;
+            l.iconSize = iconSize;
+            l.innerRadius = innerRadius;
+            l.innerRadius2 = innerRadius * innerRadius;
+            l.outerRadius = outerRadius;
+
+            l.slotBack = iconSize / 2f + Scl.scl(10f) * scale;
+            l.strokeNorm = Scl.scl(1.6f) * scale;
+            l.strokeHover = Scl.scl(2.4f) * scale;
+
+            l.hit2 = hit * hit;
+            l.deadzone2 = deadzone * deadzone;
+            l.backRadius = backRadius;
+            l.backRadius2 = backRadius * backRadius;
+
+            l.backStrength = Mathf.clamp(Core.settings.getInt(keyBackStrength, 22) / 100f);
+            l.ringAlpha = Mathf.clamp(Core.settings.getInt(keyRingAlpha, 65) / 100f);
+            l.ringStroke = Scl.scl(Core.settings.getInt(keyRingStroke, 2)) * scale;
+
+            for(int order = 0; order < innerCount; order++){
+                float angle = angleForOrder(order, innerCount);
+                l.innerX[order] = centerX + Mathf.cosDeg(angle) * innerRadius;
+                l.innerY[order] = centerY + Mathf.sinDeg(angle) * innerRadius;
+            }
+
+            for(int order = 0; order < outerCount; order++){
+                float angle = angleForOrder(order, outerCount);
+                l.outerX[order] = centerX + Mathf.cosDeg(angle) * outerRadius;
+                l.outerY[order] = centerY + Mathf.sinDeg(angle) * outerRadius;
+            }
+        }
+
+        @Override
+        public void draw(){
+            if(!active) return;
+
+            updateLayout();
+            HudLayout l = layout;
+
+            float alpha = l.alpha;
+            if(alpha <= 0.001f) return;
+
+            float iconSize = l.iconSize;
+            float innerRadius = l.innerRadius;
+            float outerRadius = l.outerRadius;
+            float slotBack = l.slotBack;
+            float strokeNorm = l.strokeNorm;
+            float strokeHover = l.strokeHover;
 
             Draw.z(1000f);
 
             hudColor.set(mod.readHudColor());
 
             // soft background disc around the cursor
-            float backStrength = Mathf.clamp(Core.settings.getInt(keyBackStrength, 22) / 100f);
+            float backStrength = l.backStrength;
             Draw.color(hudColor, backStrength * alpha);
-            float backRadius = (outerActive ? outerRadius : innerRadius) + iconSize * 0.75f;
-            Fill.circle(centerX, centerY, backRadius);
+            Fill.circle(centerX, centerY, l.backRadius);
 
             // ring
-            float ringAlpha = Mathf.clamp(Core.settings.getInt(keyRingAlpha, 65) / 100f);
+            float ringAlpha = l.ringAlpha;
             Draw.color(Pal.accent, ringAlpha * alpha);
-            Lines.stroke(Scl.scl(Core.settings.getInt(keyRingStroke, 2)) * scale);
+            Lines.stroke(l.ringStroke);
             Lines.circle(centerX, centerY, innerRadius);
             if(outerActive){
                 Lines.circle(centerX, centerY, outerRadius);
@@ -1599,9 +1685,8 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             // draw inner ring slots (only configured)
             for(int order = 0; order < innerCount; order++){
                 int slotIndex = innerIndices[order];
-                float angle = angleForOrder(order, innerCount);
-                float px = centerX + Mathf.cosDeg(angle) * innerRadius;
-                float py = centerY + Mathf.sinDeg(angle) * innerRadius;
+                float px = l.innerX[order];
+                float py = l.innerY[order];
 
                 boolean isHovered = slotIndex == hovered;
 
@@ -1711,32 +1796,20 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         }
 
         private int findSlotAt(float sx, float sy){
-            float scale = Mathf.clamp(Core.settings.getInt(keyHudScale, 100) / 100f, 0.1f, 5f);
-            float innerSetting = Core.settings.getInt(keyInnerRadius, 80);
-            float outerSetting = Core.settings.getInt(keyOuterRadius, 140);
-            float radiusScale = Mathf.clamp((innerSetting / 80f + outerSetting / 140f) / 2f, 0.5f, 3f);
-            float iconSizeScale = Mathf.clamp(Core.settings.getInt(keyIconScale, 100) / 100f, 0.2f, 5f);
-            float iconSize = Scl.scl(46f) * scale * radiusScale * iconSizeScale;
-            float innerRadius = Scl.scl(innerSetting) * scale;
-            float outerRadius = Scl.scl(outerSetting) * scale;
-            outerRadius = Math.max(outerRadius, innerRadius + iconSize * 1.15f);
-            float hit = iconSize / 2f + Scl.scl(Math.max(0, Core.settings.getInt(keyHoverPadding, 12))) * scale;
-            float hit2 = hit * hit;
+            updateLayout();
+            HudLayout l = layout;
 
             float centerDx = sx - centerX;
             float centerDy = sy - centerY;
-            boolean preferInner = innerCount > 0 && (centerDx * centerDx + centerDy * centerDy) <= innerRadius * innerRadius;
+            boolean preferInner = innerCount > 0 && (centerDx * centerDx + centerDy * centerDy) <= l.innerRadius2;
 
             int bestSlot = -1;
-            float bestDst2 = hit2;
+            float bestDst2 = l.hit2;
 
             for(int order = 0; order < innerCount; order++){
                 int slotIndex = innerIndices[order];
-                float angle = angleForOrder(order, innerCount);
-                float px = centerX + Mathf.cosDeg(angle) * innerRadius;
-                float py = centerY + Mathf.sinDeg(angle) * innerRadius;
-                float dx = sx - px;
-                float dy = sy - py;
+                float dx = sx - l.innerX[order];
+                float dy = sy - l.innerY[order];
                 float dst2 = dx * dx + dy * dy;
                 if(dst2 <= bestDst2){
                     bestDst2 = dst2;
@@ -1747,11 +1820,8 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             if(outerActive && !preferInner){
                 for(int order = 0; order < outerCount; order++){
                     int slotIndex = outerIndices[order];
-                    float angle = angleForOrder(order, outerCount);
-                    float px = centerX + Mathf.cosDeg(angle) * outerRadius;
-                    float py = centerY + Mathf.sinDeg(angle) * outerRadius;
-                    float dx = sx - px;
-                    float dy = sy - py;
+                    float dx = sx - l.outerX[order];
+                    float dy = sy - l.outerY[order];
                     float dst2 = dx * dx + dy * dy;
                     if(dst2 <= bestDst2){
                         bestDst2 = dst2;
@@ -1764,22 +1834,12 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         }
 
         private boolean isOutsideHud(float sx, float sy){
-            float scale = Mathf.clamp(Core.settings.getInt(keyHudScale, 100) / 100f, 0.1f, 5f);
-            float innerSetting = Core.settings.getInt(keyInnerRadius, 80);
-            float outerSetting = Core.settings.getInt(keyOuterRadius, 140);
-            float radiusScale = Mathf.clamp((innerSetting / 80f + outerSetting / 140f) / 2f, 0.5f, 3f);
-            float iconSizeScale = Mathf.clamp(Core.settings.getInt(keyIconScale, 100) / 100f, 0.2f, 5f);
-            float iconSize = Scl.scl(46f) * scale * radiusScale * iconSizeScale;
-            float innerRadius = Scl.scl(innerSetting) * scale;
-            float outerRadius = Scl.scl(outerSetting) * scale;
-            outerRadius = Math.max(outerRadius, innerRadius + iconSize * 1.15f);
-
-            float outer = outerActive ? outerRadius : innerRadius;
-            float backRadius = outer + iconSize * 0.75f;
+            updateLayout();
+            HudLayout l = layout;
 
             float dx = sx - centerX;
             float dy = sy - centerY;
-            return dx * dx + dy * dy > backRadius * backRadius;
+            return dx * dx + dy * dy > l.backRadius2;
         }
 
         private void updateHovered(){
@@ -1848,17 +1908,8 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
         }
 
         private int findHovered(){
-            float scale = Mathf.clamp(Core.settings.getInt(keyHudScale, 100) / 100f, 0.1f, 5f);
-            float innerSetting = Core.settings.getInt(keyInnerRadius, 80);
-            float outerSetting = Core.settings.getInt(keyOuterRadius, 140);
-            float radiusScale = Mathf.clamp((innerSetting / 80f + outerSetting / 140f) / 2f, 0.5f, 3f);
-            float iconSizeScale = Mathf.clamp(Core.settings.getInt(keyIconScale, 100) / 100f, 0.2f, 5f);
-            float iconSize = Scl.scl(46f) * scale * radiusScale * iconSizeScale;
-            float innerRadius = Scl.scl(innerSetting) * scale;
-            float outerRadius = Scl.scl(outerSetting) * scale;
-            outerRadius = Math.max(outerRadius, innerRadius + iconSize * 1.15f);
-            float hit = iconSize / 2f + Scl.scl(Math.max(0, Core.settings.getInt(keyHoverPadding, 12))) * scale;
-            float hit2 = hit * hit;
+            updateLayout();
+            HudLayout l = layout;
 
             float mx = Core.input.mouseX();
             float my = Core.input.mouseY();
@@ -1866,19 +1917,16 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             // When the cursor is on/inside the inner ring radius, never allow selecting outer ring slots.
             float centerDx = mx - centerX;
             float centerDy = my - centerY;
-            boolean preferInner = innerCount > 0 && (centerDx * centerDx + centerDy * centerDy) <= innerRadius * innerRadius;
+            boolean preferInner = innerCount > 0 && (centerDx * centerDx + centerDy * centerDy) <= l.innerRadius2;
 
             // hover hit-test (inner + outer)
             int bestSlot = -1;
-            float bestDst2 = hit2;
+            float bestDst2 = l.hit2;
 
             for(int order = 0; order < innerCount; order++){
                 int slotIndex = innerIndices[order];
-                float angle = angleForOrder(order, innerCount);
-                float px = centerX + Mathf.cosDeg(angle) * innerRadius;
-                float py = centerY + Mathf.sinDeg(angle) * innerRadius;
-                float dx = mx - px;
-                float dy = my - py;
+                float dx = mx - l.innerX[order];
+                float dy = my - l.innerY[order];
                 float dst2 = dx * dx + dy * dy;
                 if(dst2 <= bestDst2){
                     bestDst2 = dst2;
@@ -1889,11 +1937,8 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             if(outerActive && !preferInner){
                 for(int order = 0; order < outerCount; order++){
                     int slotIndex = outerIndices[order];
-                    float angle = angleForOrder(order, outerCount);
-                    float px = centerX + Mathf.cosDeg(angle) * outerRadius;
-                    float py = centerY + Mathf.sinDeg(angle) * outerRadius;
-                    float dx = mx - px;
-                    float dy = my - py;
+                    float dx = mx - l.outerX[order];
+                    float dy = my - l.outerY[order];
                     float dst2 = dx * dx + dy * dy;
                     if(dst2 <= bestDst2){
                         bestDst2 = dst2;
@@ -1909,8 +1954,7 @@ public class RadialBuildMenuMod extends mindustry.mod.Mod{
             // direction-based selection
             float dx = centerDx;
             float dy = centerDy;
-            float deadzone = iconSize * Mathf.clamp(Core.settings.getInt(keyDeadzoneScale, 35) / 100f);
-            if(dx * dx + dy * dy < deadzone * deadzone) return -1;
+            if(dx * dx + dy * dy < l.deadzone2) return -1;
 
             if(preferInner){
                 if(innerCount <= 0) return -1;

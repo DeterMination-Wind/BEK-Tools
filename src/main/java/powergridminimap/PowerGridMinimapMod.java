@@ -620,7 +620,14 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         if(player == null) return;
 
         cache.updateBasic();
-        cache.updateFullOverlay();
+
+        // Full overlay texture rebuild is the most expensive part; skip it entirely when the
+        // grid-color overlay is fully transparent.
+        int gridAlphaInt = Core.settings.getInt(keyGridAlpha, 40);
+        boolean drawGridOverlay = gridAlphaInt > 0;
+        if(drawGridOverlay){
+            cache.updateFullOverlay();
+        }
 
         float w = Core.graphics.getWidth();
         float h = Core.graphics.getHeight();
@@ -636,12 +643,14 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         fullBounds.set(w/2f + panx*zoom - size/2f, h/2f + pany*zoom - size/2f * ratio, size, size * ratio);
 
         //overlay fill texture
-        Texture overlayTex = cache.getFullOverlayTexture();
-        if(overlayTex != null){
-            overlayTex.setFilter(Texture.TextureFilter.nearest);
-            TextureRegion reg = Draw.wrap(overlayTex);
-            Draw.color();
-            Draw.rect(reg, w/2f + panx*zoom, h/2f + pany*zoom, size, size * ratio);
+        if(drawGridOverlay){
+            Texture overlayTex = cache.getFullOverlayTexture();
+            if(overlayTex != null){
+                overlayTex.setFilter(Texture.TextureFilter.nearest);
+                TextureRegion reg = Draw.wrap(overlayTex);
+                Draw.color();
+                Draw.rect(reg, w/2f + panx*zoom, h/2f + pany*zoom, size, size * ratio);
+            }
         }
 
         //balance markers on top (world-coordinates transform)
@@ -658,8 +667,8 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         Rect viewRect = Tmp.r2.set(0f, 0f, world.unitWidth(), world.unitHeight());
 
         //fill marker rectangles with a light color (world-coordinates transform)
-        if(!cache.markerRects.isEmpty()){
-            float alpha = Mathf.clamp(Core.settings.getInt(keyGridAlpha, 40) / 100f) * 0.12f;
+        if(drawGridOverlay && !cache.markerRects.isEmpty()){
+            float alpha = Mathf.clamp(gridAlphaInt / 100f) * 0.12f;
             for(int i = 0; i < cache.markerRects.size; i++){
                 MarkerRectInfo r = cache.markerRects.get(i);
                 if(r.graph == null) continue;
@@ -798,7 +807,11 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             if(world == null || !state.isGame() || world.isGenerating()) return;
 
             cache.updateBasic();
-            cache.updateFullOverlay();
+
+            // Overlay texture rebuild is expensive; don't do it when the grid overlay is transparent.
+            if(Core.settings.getInt(keyGridAlpha, 40) > 0){
+                cache.updateFullOverlay();
+            }
 
             if(!clipBegin()) return;
 
@@ -1116,7 +1129,13 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             }
 
             cache.updateBasic();
-            cache.updateFullOverlay();
+
+            // Overlay texture rebuild is expensive; don't do it when the grid overlay is transparent.
+            int gridAlphaInt = Core.settings.getInt(keyGridAlpha, 40);
+            boolean drawGridOverlay = gridAlphaInt > 0;
+            if(drawGridOverlay){
+                cache.updateFullOverlay();
+            }
 
             if(!clipBegin()){
                 if(!loggedClipFail){
@@ -1141,24 +1160,26 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             float invScale = 1f / Math.max(0.000001f, scale);
 
             //Match MI2's draw style: draw a cropped region in UI-space, not a world-space transform.
-            Texture overlayTex = cache.getFullOverlayTexture();
-            if(overlayTex != null){
-                overlayTex.setFilter(Texture.TextureFilter.nearest);
-                Draw.color(1f, 1f, 1f, parentAlpha);
-                float invTexWidth = 1f / overlayTex.width / tilesize;
-                float invTexHeight = 1f / overlayTex.height / tilesize;
-                float pixmapy = world.height() * tilesize - (viewRect.y + viewRect.height);
-                Tmp.tr1.set(overlayTex);
-                Tmp.tr1.set(
-                    viewRect.x * invTexWidth,
-                    pixmapy * invTexHeight,
-                    (viewRect.x + viewRect.width) * invTexWidth,
-                    (pixmapy + viewRect.height) * invTexHeight
-                );
-                Draw.rect(Tmp.tr1, x + width / 2f, y + height / 2f, width, height);
+            if(drawGridOverlay){
+                Texture overlayTex = cache.getFullOverlayTexture();
+                if(overlayTex != null){
+                    overlayTex.setFilter(Texture.TextureFilter.nearest);
+                    Draw.color(1f, 1f, 1f, parentAlpha);
+                    float invTexWidth = 1f / overlayTex.width / tilesize;
+                    float invTexHeight = 1f / overlayTex.height / tilesize;
+                    float pixmapy = world.height() * tilesize - (viewRect.y + viewRect.height);
+                    Tmp.tr1.set(overlayTex);
+                    Tmp.tr1.set(
+                        viewRect.x * invTexWidth,
+                        pixmapy * invTexHeight,
+                        (viewRect.x + viewRect.width) * invTexWidth,
+                        (pixmapy + viewRect.height) * invTexHeight
+                    );
+                    Draw.rect(Tmp.tr1, x + width / 2f, y + height / 2f, width, height);
+                }
             }
 
-            float alpha = Mathf.clamp(Core.settings.getInt(keyGridAlpha, 40) / 100f) * parentAlpha;
+            float alpha = Mathf.clamp(gridAlphaInt / 100f) * parentAlpha;
             float rectAlpha = alpha * 0.18f;
             for(int ri = 0; ri < cache.markerRects.size; ri++){
                 MarkerRectInfo mr = cache.markerRects.get(ri);
@@ -1378,6 +1399,12 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
         private final IntQueue tmpBfs = new IntQueue();
         private final int[] tmpNeighborGrids = new int[8];
 
+        // Reused per-grid RGBA lookup tables for the full overlay rebuild.
+        // These avoid allocating 3x int[gridCount] every time the overlay pixmap is regenerated.
+        private int[] tmpBaseRgbaByGrid;
+        private int[] tmpDarkRgbaByGrid;
+        private int[] tmpLightRgbaByGrid;
+
         public void clear(){
             graphs.clear();
             grids.clear();
@@ -1443,9 +1470,8 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                 nextFullUpdateTime = 0f;
             }
 
-            if(basicDirty && Time.time < nextUpdateTime) return;
-            if(!basicDirty && Time.time < nextUpdateTime) return;
-            if(!basicDirty && Time.time >= nextUpdateTime){
+            if(Time.time < nextUpdateTime) return;
+            if(!basicDirty){
                 // If nothing invalidated the cache, avoid rescanning the whole map repeatedly.
                 float wait = updateWaitTicks();
                 nextUpdateTime = Time.time + wait * 6f;
@@ -1836,7 +1862,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
             Arrays.fill(ownerPower, -1);
             Arrays.fill(overlayOwner, -1);
 
-            //seed: power-using buildings tiles
+            // Step 1) Seed power-using building tiles.
             for(int gi = 0; gi < grids.size; gi++){
                 final int gridIndex = gi;
                 PowerGraph graph = grids.get(gi).graph;
@@ -1858,8 +1884,8 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                 claimedBuild[i] = ownerClaim[i] >= 0;
             }
 
-            //rule 1: adjacent non-power buildings join if adjacent to exactly one grid (by power tiles)
-            //collect non-power buildings first
+            // Step 2) Claim "non-power" buildings that touch exactly one grid.
+            // Collect non-power buildings first so we can assign them deterministically.
             Seq<mindustry.gen.Building> nonPower = tmpNonPower;
             nonPower.clear();
             for(int i = 0; i < mindustry.gen.Groups.build.size(); i++){
@@ -1907,7 +1933,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                 }
             }
 
-            //rule 2: distance BFS from power tiles; non-power buildings within threshold join nearest grid
+            // Step 3) Distance-BFS from power tiles: remaining non-power buildings within threshold join the nearest grid.
             if(claimDistance > 0){
                 short[] dist = tmpDist;
                 int[] ownerNear = tmpOwnerNear;
@@ -1962,7 +1988,7 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                 }
             }
 
-            //rule 4: for each grid, compute boundary+interior fill per connected component and render into pixmap
+            // Step 4) Render per-grid bounding rectangles into the overlay pixmap.
             boolean[] visited = tmpVisitedTiles;
             Arrays.fill(visited, false);
             IntQueue bfs = tmpBfs;
@@ -1972,11 +1998,14 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
 
             float alpha = Mathf.clamp(gridAlphaInt / 100f);
 
-            //Precompute colors per grid once, then scan tiles once.
+            // Precompute colors per grid once, then scan tiles once.
             int gridCount = grids.size;
-            int[] baseRgbaByGrid = new int[gridCount];
-            int[] darkRgbaByGrid = new int[gridCount];
-            int[] lightRgbaByGrid = new int[gridCount];
+            tmpBaseRgbaByGrid = ensureIntArray(tmpBaseRgbaByGrid, gridCount);
+            tmpDarkRgbaByGrid = ensureIntArray(tmpDarkRgbaByGrid, gridCount);
+            tmpLightRgbaByGrid = ensureIntArray(tmpLightRgbaByGrid, gridCount);
+            int[] baseRgbaByGrid = tmpBaseRgbaByGrid;
+            int[] darkRgbaByGrid = tmpDarkRgbaByGrid;
+            int[] lightRgbaByGrid = tmpLightRgbaByGrid;
             for(int gi = 0; gi < gridCount; gi++){
                 GridInfo info = grids.get(gi);
                 Color base = MinimapOverlay.colorForGraph(info.colorKey, Tmp.c1);
@@ -2086,6 +2115,13 @@ public class PowerGridMinimapMod extends mindustry.mod.Mod{
                 Arrays.fill(tmpAssigned, 0, size, false);
             }
             return tmpAssigned;
+        }
+
+        private static int[] ensureIntArray(int[] arr, int size){
+            if(arr == null || arr.length < size){
+                return new int[size];
+            }
+            return arr;
         }
 
         private static int addNeighborGrid(int[] ownerPower, int w, int h, int x, int y, int[] out, int count){

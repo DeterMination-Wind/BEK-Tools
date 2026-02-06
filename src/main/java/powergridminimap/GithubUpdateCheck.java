@@ -317,7 +317,7 @@ final class GithubUpdateCheck{
 
     private static void buildReleaseList(Table content, Mods.LoadedMod mod, String current, ReleaseInfo latest, ArrayList<ReleaseInfo> releases, ReleaseInfo selectedRelease, boolean preRelease, BaseDialog parent){
         boolean any = false;
-        for(ReleaseInfo r : releases){
+        for(final ReleaseInfo r : releases){
             if(r == null) continue;
             if(r.preRelease != preRelease) continue;
             any = true;
@@ -325,17 +325,22 @@ final class GithubUpdateCheck{
             String label = r.version;
             if(r == latest) label += "（最新）";
 
+            // Java's enhanced-for variable is not reliably treated as effectively-final across
+            // all toolchains used for Mindustry mod builds. Capture a final alias for lambdas.
+            final ReleaseInfo rel = r;
+            final String labelText = label;
+
             content.table(row -> {
                 row.left().defaults().left();
-                row.check(label, r == selectedRelease, v -> {
+                row.check(labelText, rel == selectedRelease, v -> {
                     parent.hide();
-                    showUpdateDialog(mod, current, latest, releases, r);
+                    showUpdateDialog(mod, current, latest, releases, rel);
                 }).growX().left();
 
-                if(r.body != null && !r.body.isEmpty()){
-                    row.button(Icon.infoSmall, () -> showReleaseNotesDialog(mod.meta.displayName, r)).size(32f).padRight(4f);
+                if(rel.body != null && !rel.body.isEmpty()){
+                    row.button(Icon.infoSmall, () -> showReleaseNotesDialog(mod.meta.displayName, rel)).size(32f).padRight(4f);
                 }
-                row.button(Icon.link, () -> Core.app.openURI(r.htmlUrl)).size(32f);
+                row.button(Icon.link, () -> Core.app.openURI(rel.htmlUrl)).size(32f);
             }).width(520f).left().row();
         }
 
@@ -469,6 +474,61 @@ final class GithubUpdateCheck{
         }
 
         Core.app.exit();
+    }
+
+    private static ArrayList<ReleaseInfo> parseReleasesList(Jval json){
+        ArrayList<ReleaseInfo> out = new ArrayList<>();
+        if(json == null || !json.isArray()) return out;
+
+        String fallbackHtmlUrl = "https://github.com/" + owner + "/" + repo + "/releases";
+        for(Jval r : json.asArray()){
+            if(r == null || !r.isObject()) continue;
+            if(r.getBool("draft", false)) continue;
+            try{
+                ReleaseInfo rel = parseRelease(r, fallbackHtmlUrl);
+                if(rel != null && rel.version != null && !rel.version.isEmpty()){
+                    out.add(rel);
+                }
+            }catch(Throwable ignored){
+            }
+        }
+
+        // Sort by version desc for stable ordering in the selection UI.
+        Collections.sort(out, (a, b) -> {
+            if(a == null && b == null) return 0;
+            if(a == null) return 1;
+            if(b == null) return -1;
+            int c = compareVersions(b.version, a.version);
+            if(c != 0) return c;
+            // If same version, show stable before prerelease.
+            if(a.preRelease != b.preRelease) return a.preRelease ? 1 : -1;
+            return a.tag.compareToIgnoreCase(b.tag);
+        });
+
+        return out;
+    }
+
+    private static ReleaseInfo pickLatestRelease(ArrayList<ReleaseInfo> releases){
+        if(releases == null || releases.isEmpty()) return null;
+
+        ReleaseInfo bestStable = null;
+        ReleaseInfo bestAny = null;
+        for(ReleaseInfo r : releases){
+            if(r == null) continue;
+            if(r.version == null || r.version.isEmpty()) continue;
+
+            if(bestAny == null || compareVersions(r.version, bestAny.version) > 0){
+                bestAny = r;
+            }
+
+            if(!r.preRelease){
+                if(bestStable == null || compareVersions(r.version, bestStable.version) > 0){
+                    bestStable = r;
+                }
+            }
+        }
+
+        return bestStable != null ? bestStable : bestAny;
     }
 
     private static ReleaseInfo parseRelease(Jval json, String fallbackHtmlUrl){
